@@ -1,3 +1,4 @@
+#include <dlfcn.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -128,10 +129,19 @@ int main(int argc, char *argv[])
 	return fuse_main(args.argc, args.argv, &mrbfsOperations, mrbfs_opt_proc);
 }
 
+int fileExists(const char* filename)
+{
+	struct stat info;
+	if (0 == stat(filename, &info))
+		return(1);
+	return(0);
+}
+
 int mrbfsOpenInterfaces()
 {
 	int interfaces = cfg_size(gMrbfsConfig->cfgParms, "interface");
 	int i=0;
+
 	gMrbfsConfig->mrbfsUsedInterfaces = 0;
 	
 	if (0 == interfaces)
@@ -140,30 +150,62 @@ int mrbfsOpenInterfaces()
 
 	for(i=0; i<interfaces; i++)
 	{
+		char* modulePath = NULL;
+		void* interfaceDriverHandle = NULL;
+		MRBFSInterfaceModule* mrbfsInterfaceModule = NULL;
+		int (*mrbfsInterfaceModuleVersionCheck)(int);
+		int ret;
 		cfg_t *cfgInterface = cfg_getnsec(gMrbfsConfig->cfgParms, "interface", i);
-		cfg_getstr(dc->cfg_parms, "module-directory"), cfg_getstr(cfgInterface, "module-name")
 		
+		mrbfsLogMessage(MRBFS_LOG_INFO, "Setting up interface [%s]", cfg_title(cfgInterface));
+		ret = asprintf(&modulePath, "%s/%s", cfg_getstr(gMrbfsConfig->cfgParms, "module-directory"), cfg_getstr(cfgInterface, "driver"));
+				
+		// First, test if the driver module exists
+		if (!fileExists(modulePath))
+		{
+			mrbfsLogMessage(MRBFS_LOG_ERROR, "Interface [%s] - driver module not found at [%s]", cfg_title(cfgInterface), modulePath);
+			free(modulePath);
+			continue;
+		}
+
+		// Test to make sure the dynamic linker can open it
+		if (NULL == (interfaceDriverHandle= (void*)dlopen(modulePath, RTLD_LAZY))) 
+		{
+			mrbfsLogMessage(MRBFS_LOG_ERROR, "Interface [%s] - driver module failed dlopen [%s]", cfg_title(cfgInterface), NULL!=dlerror()?dlerror():"");
+			free(modulePath);
+			continue;
+		}
+
+		free(modulePath);
+
+		// Now do some cursory version checks
+		mrbfsInterfaceModuleVersionCheck = dlsym(interfaceDriverHandle, "mrbfsInterfaceModuleVersionCheck");
+		if(NULL == mrbfsInterfaceModuleVersionCheck || !(*mrbfsInterfaceModuleVersionCheck)(MRBFS_INTERFACE_MODULE_VERSION))
+		{
+			mrbfsLogMessage(MRBFS_LOG_ERROR, "Interface [%s] - module version check failed");
+			continue;
+		}
 		
+		// Okay, looks good, add it to the interface list and run the init function
+
+		mrbfsInterfaceModule = calloc(1, sizeof(MRBFSInterfaceModule));
+		mrbfsInterfaceModule->interfaceDriverHandle = interfaceDriverHandle;
+		mrbfsInterfaceModule->bus = cfg_getint(cfgInterface, "driver");
+		mrbfsInterfaceModule->port = strdup(cfg_getstr(cfgInterface, "port"));
+		mrbfsInterfaceModule->addr = strtol(cfg_getstr(cfgInterface, "interface-address"), NULL, 36);
+
+		// Hook up the callbacks for the driver to talk to the main thread
+		//mrbfsInterfaceModule->mrbfsGetNode = &mrbfsGetNode;
+		mrbfsInterfaceModule->mrbfsLogMessage = &mrbfsLogMessage;
 	
-	
-	
-	
+		
+		gMrbfsConfig->mrbfsInterfaceModules[gMrbfsConfig->mrbfsUsedInterfaces++] = mrbfsInterfaceModule;
+
+		mrbfsLogMessage(MRBFS_LOG_INFO, "Interface [%s] successfully set up in slot %d", cfg_title(cfgInterface), gMrbfsConfig->mrbfsUsedInterfaces-1);
+
+		
 	}
-	
 
-	void* hModule = (void*)dlopen(buffer, RTLD_LAZY);
-
-	MRBFSInterfaceModule
-
-	module_version_check = dlsym(hModule, "module_version_check");
-
-	if ((error = dlerror()) != NULL)
-	{
-		fprintf(dc->hOutput, "Version Check Error\n");
-		fputs(error, stderr);
-		continue;
-	}
-	testfunc = dlsym(hModule, "testfunc");
 
 }
 

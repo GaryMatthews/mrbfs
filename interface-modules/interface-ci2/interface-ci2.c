@@ -1,3 +1,13 @@
+
+
+int mrbfsInterfaceModuleVersionCheck(int ifaceVersion)
+{
+	if (ifaceVersion != MRBFS_INTERFACE_MODULE_VERSION)
+		return(0);
+	return(1);
+}
+
+
 static void mrbus_driver_serial()
 {
 	int fd, n;

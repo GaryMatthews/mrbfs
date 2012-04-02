@@ -6,6 +6,12 @@
 
 #define MRBFS_VERSION "0.0.1"
 
+#define MRBFS_INTERFACE_MODULE_VERSION   0x01000001
+#define MRBFS_NODE_MODULE_VERSION        0x02000001
+
+typedef unsigned long UINT32 ;
+typedef unsigned char UINT8 ;
+
 typedef enum
 {
 	MRBFS_LOG_ERROR   = 0,
@@ -24,11 +30,18 @@ typedef struct
 
 typedef struct
 {
-	void* interfaceHandle;
+	void* interfaceDriverHandle;
 	pthread_t interfaceThread;
 	const char* interfaceName;
-	UINT8 mrbusBusNum;
-	UINT8 mrbusAddress;
+	const char* port;
+	UINT8 bus;
+	UINT8 addr;
+	
+	
+	int (*mrbfsLogMessage)(mrbfsLogLevel, const char*, ...);
+	MRBFSNode* (*mrbfsGetNode)(UINT8);
+	void* moduleLocalStorage;
+	
 } MRBFSInterfaceModule;
 
 typedef struct 
@@ -37,7 +50,7 @@ typedef struct
 	UINT8 mrbusBusNum;
 	UINT8 mrbusAddress;
 	
-	MRBFSNode* (*mrbfsGetNode)(UINT8 mrbusBusNum, 
+	MRBFSNode* (*mrbfsGetNode)(UINT8 bus);
 	
 	// Thing to get node to enqueue messages
 	
