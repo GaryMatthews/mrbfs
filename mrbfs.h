@@ -9,15 +9,6 @@ typedef unsigned char UINT8 ;
 
 
 
-typedef struct 
-{
-   mrbfsLogLevel logLevel;
-	const char *configFileStr;
-   cfg_t* cfgParms;
-   FILE* logFile;
-  	pthread_mutex_t logLock;
-} MRBFSConfig;
-
 
 
 extern MRBFSConfig* gMrbfsConfig;

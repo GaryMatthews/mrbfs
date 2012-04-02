@@ -128,4 +128,42 @@ int main(int argc, char *argv[])
 	return fuse_main(args.argc, args.argv, &mrbfsOperations, mrbfs_opt_proc);
 }
 
+int mrbfsOpenInterfaces()
+{
+	int interfaces = cfg_size(gMrbfsConfig->cfgParms, "interface");
+	int i=0;
+	gMrbfsConfig->mrbfsUsedInterfaces = 0;
+	
+	if (0 == interfaces)
+		mrbfsLogMessage(MRBFS_LOG_WARNING, "No interfaces configured - proceeding, but this is slightly nuts");
+
+
+	for(i=0; i<interfaces; i++)
+	{
+		cfg_t *cfgInterface = cfg_getnsec(gMrbfsConfig->cfgParms, "interface", i);
+		cfg_getstr(dc->cfg_parms, "module-directory"), cfg_getstr(cfgInterface, "module-name")
+		
+		
+	
+	
+	
+	
+	}
+	
+
+	void* hModule = (void*)dlopen(buffer, RTLD_LAZY);
+
+	MRBFSInterfaceModule
+
+	module_version_check = dlsym(hModule, "module_version_check");
+
+	if ((error = dlerror()) != NULL)
+	{
+		fprintf(dc->hOutput, "Version Check Error\n");
+		fputs(error, stderr);
+		continue;
+	}
+	testfunc = dlsym(hModule, "testfunc");
+
+}
 

@@ -21,6 +21,16 @@ typedef struct
 	int (*mrbfsNodePacket)(UINT8* mrbusPacket, UINT8 mrbusPacketLen);
 } MRBFSNode;
 
+
+typedef struct
+{
+	void* interfaceHandle;
+	pthread_t interfaceThread;
+	const char* interfaceName;
+	UINT8 mrbusBusNum;
+	UINT8 mrbusAddress;
+} MRBFSInterfaceModule;
+
 typedef struct 
 {
 	int (*mrbfsLogMessage)(mrbfsLogLevel logLevel, const char* format, ...);
@@ -32,7 +42,22 @@ typedef struct
 	// Thing to get node to enqueue messages
 	
 	
-} MRBFSInterfaceModule;
+} MRBFSInterfaceContext;
+
+#define MRBFS_MAX_INTERFACES   16
+
+typedef struct 
+{
+   mrbfsLogLevel logLevel;
+	const char *configFileStr;
+   cfg_t* cfgParms;
+   FILE* logFile;
+  	pthread_mutex_t logLock;
+	MRBFSInterfaceModule* mrbfsInterfaceModules[MRBFS_MAX_INTERFACES];
+	UINT8 mrbfsUsedInterfaces;
+	
+} MRBFSConfig;
+
 
 #endif
 
