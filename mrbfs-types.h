@@ -44,13 +44,66 @@ typedef struct
 	
 } MRBFSInterfaceModule;
 
+typedef struct
+{
+	UINT8 stuff; // This is a placeholder
+	
+} MRBFSNodeModule;
+
+
+typedef union
+{
+	char* valueStr;
+	int valueInt;
+	void* dirPtr;
+
+} MRBFSFileNodeValue;
+
+typedef enum
+{
+	FNODE_DIR,
+	FNODE_DIR_NODE,	
+	FNODE_RO_VALUE_STR,
+	FNODE_RO_VALUE_INT,
+	FNODE_WRITABLE_VALUE_STR,
+	FNODE_WRITABLE_VALUE_INT,	
+	FNODE_END_OF_LIST
+} MRBFSFileNodeType;
+
+typedef struct MRBFSFileNode
+{
+	char* fileName;
+	MRBFSFileNodeValue value;
+	MRBFSFileNodeType fileType;
+	struct MRBFSFileNode* childPtr;
+	struct MRBFSFileNode* siblingPtr;
+} MRBFSFileNode;
+
+
+typedef struct
+{
+	time_t updateTime;
+	UINT8 address;
+	char* name;
+	MRBFSNodeModule nodeModule;
+	void* moduleLocalStorage;	
+  	pthread_mutex_t nodeLock;	
+} MRBFSBusNode;
+
+typedef struct
+{
+	UINT8 bus;
+	MRBFSBusNode* node[256];
+  	pthread_mutex_t busLock;
+} MRBFSBus;
+
 typedef struct 
 {
 	int (*mrbfsLogMessage)(mrbfsLogLevel logLevel, const char* format, ...);
-	UINT8 mrbusBusNum;
-	UINT8 mrbusAddress;
+	UINT8 bus;
+	UINT8 address;
 	
-	MRBFSNode* (*mrbfsGetNode)(UINT8 bus);
+	MRBFSNode** (*mrbfsGetAffectedNodeList)(UINT8 bus, UINT8 srcAddress);
 	
 	// Thing to get node to enqueue messages
 	
@@ -68,6 +121,11 @@ typedef struct
   	pthread_mutex_t logLock;
 	MRBFSInterfaceModule* mrbfsInterfaceModules[MRBFS_MAX_INTERFACES];
 	UINT8 mrbfsUsedInterfaces;
+	MRBFSBus* bus[256];
+  	pthread_mutex_t masterLock;
+	
+	MRBFSFileNode* rootNode;
+	pthread_mutex_t fsLock;
 	
 } MRBFSConfig;
 

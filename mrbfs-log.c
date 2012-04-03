@@ -25,8 +25,8 @@ int mrbfsLogMessage(mrbfsLogLevel logLevel, const char* format, ...)
 	strftime(logTimeStr, sizeof(logTimeStr), "[%Y-%b-%d %H:%M:%S %z] ", &logTimeTM);
 	
 	// Ignore anything logging at a higher (less important) level than we're running at
-	if (logLevel > gMrbfsConfig->logLevel)
-		return; 
+//	if (logLevel > gMrbfsConfig->logLevel)
+//		return; 
 		
 	pthread_mutex_lock(&gMrbfsConfig->logLock);
 	fprintf(gMrbfsConfig->logFile, "%s", logTimeStr);
@@ -34,6 +34,7 @@ int mrbfsLogMessage(mrbfsLogLevel logLevel, const char* format, ...)
 	vfprintf(gMrbfsConfig->logFile, format, argptr);
 	va_end(argptr);
 	fprintf(gMrbfsConfig->logFile, "\n");
+	fflush(gMrbfsConfig->logFile);
 	pthread_mutex_unlock(&gMrbfsConfig->logLock);
 
 }

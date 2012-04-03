@@ -113,7 +113,19 @@ int main(int argc, char *argv[])
 		perror("Failed allocation of global configuration structure, exiting...\n");
 		exit(1);
 	}
+	else
+	{
+		pthread_mutexattr_t lockAttr;
+		// Initialize the master lock
+		pthread_mutexattr_init(&lockAttr);
+		pthread_mutexattr_settype(&lockAttr, PTHREAD_MUTEX_ADAPTIVE_NP);
+		pthread_mutex_init(&gMrbfsConfig->masterLock, &lockAttr);
+		pthread_mutexattr_destroy(&lockAttr);		
+	}
+	
 	fuse_opt_parse(&args, &gMrbfsConfig, mrbfs_opts, NULL);
+
+	gMrbfsConfig->logLevel=9;
 
 	// Okay, we've theoretically parsed any configuration options from the command line.
 	// Go try to load our configuration file
@@ -135,6 +147,133 @@ int fileExists(const char* filename)
 	if (0 == stat(filename, &info))
 		return(1);
 	return(0);
+}
+
+
+int mrbfsRemoveNode(MRBFSBus* bus, UINT8 nodeNumber)
+{
+	MRBFSBusNode* node = bus->node[nodeNumber];
+	// If node is null, this thing isn't active
+	if (NULL == bus->node[nodeNumber])
+		return(0);
+
+	pthread_mutex_lock(&node->nodeLock);
+	
+	if (NULL != node->name)
+		free(node->name);
+	
+	// FIXME: Need to free the actual node module, but for now it'll just leak
+
+	pthread_mutex_unlock(&node->nodeLock);
+	free(node);
+	bus->node[nodeNumber] = NULL;
+	return(0);
+}
+
+int mrbfsRemoveBus(UINT8 busNumber)
+{
+	int node=0;
+	MRBFSBus* bus = gMrbfsConfig->bus[busNumber];
+	mrbfsLogMessage(MRBFS_LOG_INFO, "Removing Bus [%d]", busNumber);
+	if (NULL == bus)
+	{
+		mrbfsLogMessage(MRBFS_LOG_INFO, "Nothing to be done, bus [%d] not allocated", busNumber);	
+		return(0);
+	}
+	
+	pthread_mutex_lock(&bus->busLock);
+	for(node=0; node<256; node++)
+	{
+		mrbfsRemoveNode(bus, node);
+	}
+	pthread_mutex_unlock(&bus->busLock);
+	
+	pthread_mutex_lock(&gMrbfsConfig->masterLock);
+	free(bus);
+	gMrbfsConfig->bus[busNumber] = NULL;
+	pthread_mutex_unlock(&gMrbfsConfig->masterLock);	
+	mrbfsLogMessage(MRBFS_LOG_INFO, "Bus [%d] successfully removed", busNumber);
+	return(0);
+}
+
+int mrbfsAddNode(MRBFSBus* bus, UINT8 address)
+{
+	MRBFSBusNode* node = bus->node[address];
+	int ret;
+	const char* name = "Unknown";
+
+	if (NULL != bus->node[address])
+	{
+		mrbfsLogMessage(MRBFS_LOG_ERROR, "Bus %d already has node [0x%02X]", bus->bus, address);
+		return(1);
+	}
+
+	pthread_mutex_lock(&bus->busLock);
+
+	node = bus->node[address] = (MRBFSBusNode*)calloc(1, sizeof(MRBFSBusNode));
+	if (NULL == node)
+	{
+		mrbfsLogMessage(MRBFS_LOG_ERROR, "Calloc() failed on allocating node [0x%02X] on bus", address, bus->bus);
+		exit(1);
+	}
+
+	{
+		// Node lock initialization
+		pthread_mutexattr_t lockAttr;
+		// Initialize the master lock
+		pthread_mutexattr_init(&lockAttr);
+		pthread_mutexattr_settype(&lockAttr, PTHREAD_MUTEX_ADAPTIVE_NP);
+		pthread_mutex_init(&node->nodeLock, &lockAttr);
+		pthread_mutexattr_destroy(&lockAttr);		
+	}
+	
+	pthread_mutex_lock(&node->nodeLock);
+
+	node->updateTime = time(NULL);
+	node->address = address;
+	
+	// FIXME - Do name lookup in conf file here
+	ret = asprintf(&node->name, "0x%02X - %s", address, name);
+
+	// FIXME - Set up linkage to module here 
+
+	pthread_mutex_unlock(&node->nodeLock);	
+
+
+	pthread_mutex_unlock(&bus->busLock);
+}
+
+int mrbfsAddBus(UINT8 busNumber)
+{
+	mrbfsLogMessage(MRBFS_LOG_INFO, "Adding Bus [%d]", busNumber);
+	pthread_mutex_lock(&gMrbfsConfig->masterLock);
+	mrbfsLogMessage(MRBFS_LOG_DEBUG, "Master mutex lock acquired");
+	if (gMrbfsConfig->bus[busNumber] == NULL)
+	{
+		pthread_mutexattr_t lockAttr;
+		gMrbfsConfig->bus[busNumber] = calloc(1, sizeof(MRBFSBus));
+		if (NULL == gMrbfsConfig->bus[busNumber])
+		{
+			mrbfsLogMessage(MRBFS_LOG_ERROR, "Calloc() failed on bus [%d] add, exiting", busNumber);
+			exit(1);
+		}
+		gMrbfsConfig->bus[busNumber]->bus = busNumber;
+
+		// Initialize the master lock
+		pthread_mutexattr_init(&lockAttr);
+		pthread_mutexattr_settype(&lockAttr, PTHREAD_MUTEX_ADAPTIVE_NP);
+		pthread_mutex_init(&gMrbfsConfig->bus[busNumber]->busLock, &lockAttr);
+		pthread_mutexattr_destroy(&lockAttr);
+	}
+	else
+	{
+		mrbfsLogMessage(MRBFS_LOG_INFO, "Bus [%d] already exists, skipping add", busNumber);
+	}
+
+
+	
+	pthread_mutex_unlock(&gMrbfsConfig->logLock);
+	mrbfsLogMessage(MRBFS_LOG_DEBUG, "Master mutex lock released");	
 }
 
 int mrbfsOpenInterfaces()
@@ -193,6 +332,9 @@ int mrbfsOpenInterfaces()
 		mrbfsInterfaceModule->bus = cfg_getint(cfgInterface, "driver");
 		mrbfsInterfaceModule->port = strdup(cfg_getstr(cfgInterface, "port"));
 		mrbfsInterfaceModule->addr = strtol(cfg_getstr(cfgInterface, "interface-address"), NULL, 36);
+
+
+		mrbfsAddBus(mrbfsInterfaceModule->bus);
 
 		// Hook up the callbacks for the driver to talk to the main thread
 		//mrbfsInterfaceModule->mrbfsGetNode = &mrbfsGetNode;
