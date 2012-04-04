@@ -1,8 +1,16 @@
 #ifndef _MRBFS_TYPES_H
 #define _MRBFS_TYPES_H
 
-#define MRBFS_MAX_PACKET_LEN 14
+#define MRBFS_MAX_PACKET_LEN 0x14
 #define MRBFS_MAX_NODES 256
+
+// Packet component defines
+#define MRBUS_PKT_DEST  0
+#define MRBUS_PKT_SRC   1
+#define MRBUS_PKT_LEN   2
+#define MRBUS_PKT_CRC_L 3
+#define MRBUS_PKT_CRC_H 4
+#define MRBUS_PKT_TYPE  5
 
 #define MRBFS_VERSION "0.0.1"
 
@@ -64,6 +72,23 @@ typedef struct MRBFSFileNode
 	struct MRBFSFileNode* siblingPtr;
 } MRBFSFileNode;
 
+typedef struct
+{
+	UINT8 bus;
+	UINT8 len;
+	UINT8 srcInterface;
+	UINT8 pkt[MRBFS_MAX_PACKET_LEN];
+} MRBusPacket;
+
+#define MRBUS_PACKET_QUEUE_SIZE  256
+
+typedef struct 
+{
+	pthread_mutex_t queueLock;
+	int headIdx;
+	int tailIdx;
+	MRBusPacket pkts[MRBUS_PACKET_QUEUE_SIZE];
+} MRBusPacketQueue;
 
 typedef struct MRBFSBusNode
 {
@@ -81,6 +106,8 @@ typedef struct MRBFSBusNode
 	int (*mrbfsLogMessage)(mrbfsLogLevel, const char*, ...);
 	MRBFSNode* (*mrbfsGetNode)(UINT8);
 	MRBFSFileNode* (*mrbfsFilesystemAddFile)(const char* fileName, MRBFSFileNodeType fileType, const char* insertionPath);
+
+	int (*mrbfsNodeRxPacket)(struct MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt);
 
 	// Function pointers from the node to main
 	int (*mrbfsNodeInit)(struct MRBFSBusNode*);
@@ -131,9 +158,11 @@ typedef struct
 	UINT8 mrbfsUsedInterfaces;
 	MRBFSBus* bus[256];
   	pthread_mutex_t masterLock;
-	
 	MRBFSFileNode* rootNode;
 	pthread_mutex_t fsLock;
+	
+	MRBusPacketQueue rx;  // RX is the incoming queue, meaning from the interfaces to the filesystem
+	MRBusPacketQueue tx;  // TX is the outgoing queue, meaning from the filesystem to the interfaces
 	
 } MRBFSConfig;
 

@@ -372,6 +372,91 @@ int mrbfsOpenInterfaces()
 }
 
 
+void mrbusPacketQueueInitialize(MRBusPacketQueue* q)
+{
+	pthread_mutexattr_t lockAttr;
+
+	// Initialize the queue lock
+	pthread_mutexattr_init(&lockAttr);
+	pthread_mutexattr_settype(&lockAttr, PTHREAD_MUTEX_ADAPTIVE_NP);
+	pthread_mutex_init(&q->queueLock, &lockAttr);
+	pthread_mutexattr_destroy(&lockAttr);		
+
+	q->headIdx = q->tailIdx = 0;
+}
+
+
+int mrbusPacketQueueDepth(MRBusPacketQueue* q)
+{
+	int depth = 0;
+	
+	pthread_mutex_lock(&q->queueLock);
+	depth = (q->headIdx - q->tailIdx) % MRBUS_PACKET_QUEUE_SIZE; 
+	pthread_mutex_unlock(&q->queueLock);
+
+	return(depth);
+}
+
+void mrbusPacketQueuePush(MRBusPacketQueue* q, UINT8 bus, UINT8 len, UINT8 srcInterface, const UINT8* data)
+{
+	pthread_mutex_lock(&q->queueLock);
+	if (len > MRBFS_MAX_PACKET_LEN)
+		len = MRBFS_MAX_PACKET_LEN;
+
+	q->pkts[q->headIdx].bus = bus;
+	q->pkts[q->headIdx].len = len;
+	q->pkts[q->headIdx].srcInterface = srcInterface;
+	memset(q->pkts[q->headIdx].pkt, 0, MRBFS_MAX_PACKET_LEN);
+	memcpy(q->pkts[q->headIdx].pkt, data, len);
+	
+	if( ++q->headIdx >= MRBUS_PACKET_QUEUE_SIZE )
+		q->headIdx = 0;
+
+	pthread_mutex_unlock(&q->queueLock);
+}
+
+MRBusPacket mrbusPacketQueuePop(MRBusPacketQueue* q)
+{
+	MRBusPacket pkt;
+	memcpy(&pkt, &q->pkts[q->tailIdx], sizeof(MRBusPacket));
+
+	if( ++q->tailIdx >= MRBUS_PACKET_QUEUE_SIZE )
+		q->tailIdx = 0;
+
+	return(pkt);
+}
+
+// mrbfsPacketReceive is spun off by the interfaces as they receive data
+// thus is can be running multiple times in parallel
+
+void mrbfsPacketReceive(MRBusPacket* rxPkt)
+{
+	UINT8 srcAddr = rxPkt->pkt[MRBUS_PKT_SRC];
+// I don't think we need mutexing here, since this will run in the interface process space
+	if (NULL == gMrbfsConfig->bus[rxPkt->bus])
+	{
+		mrbfsLogMessage(MRBFS_LOG_INFO, "Received packet for bus[%d], which isn't set up", rxPkt->bus);
+		return;
+	}
+
+	if (NULL == gMrbfsConfig->bus[rxPkt->bus]->node[srcAddr])
+	{
+		mrbfsLogMessage(MRBFS_LOG_INFO, "Received packet for [%d/0x%02X], which isn't set up", rxPkt->bus, srcAddr);
+		// FIXME - load generic node driver every time we see a packet going somewhere we don't recognize
+		return;
+	}
+	
+	if (NULL != gMrbfsConfig->bus[rxPkt->bus]->node[srcAddr]->mrbfsNodeRxPacket)
+	{
+		int ret = (*gMrbfsConfig->bus[rxPkt->bus]->node[srcAddr]->mrbfsNodeRxPacket)(gMrbfsConfig->bus[rxPkt->bus]->node[srcAddr], rxPkt);
+		mrbfsLogMessage(MRBFS_LOG_DEBUG, "Received packet for [%d/%02X] and processed, ret=%d", rxPkt->bus, srcAddr, ret);
+	}
+}
+
+void mrbfsPacketTransmit()
+{
+}
+
 int mrbfsLoadNodes()
 {
 	int nodes = cfg_size(gMrbfsConfig->cfgParms, "node");
@@ -492,6 +577,7 @@ typedef struct MRBFSBusNode
 		node->mrbfsFilesystemAddFile = &mrbfsFilesystemAddFile;
 		node->mrbfsNodeInit = dlsym(nodeDriverHandle, "mrbfsNodeInit");
 		node->mrbfsNodeDestroy = dlsym(nodeDriverHandle, "mrbfsNodeDestroy");
+		node->mrbfsNodeRxPacket = dlsym(nodeDriverHandle, "mrbfsNodeRxPacket");
 		node->baseFileNode = mrbfsFilesystemAddFile(modulePath, FNODE_DIR_NODE, fsPath);
 
 		(*node->mrbfsNodeInit)(node);

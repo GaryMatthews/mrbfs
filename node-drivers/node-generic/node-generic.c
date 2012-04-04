@@ -58,3 +58,14 @@ int mrbfsNodeDestroy(MRBFSBusNode* mrbfsNode)
 	return (0);
 }
 
+
+// This function may be called simultaneously by multiple packet receivers.  Make sure anything affecting
+// the node as a whole is interlocked with mutexes.
+int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
+{
+	NodeLocalStorage* nodeLocalStorage = (NodeLocalStorage*)mrbfsNode->nodeLocalStorage;
+	pthread_mutex_lock(&mrbfsNode->nodeLock);
+	nodeLocalStorage->pktsReceived++;
+	pthread_mutex_unlock(&mrbfsNode->nodeLock);
+	return(0);
+}
