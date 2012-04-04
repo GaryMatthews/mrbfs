@@ -15,7 +15,7 @@
 #include "mrbfs-module.h"
 
 
-int mrbfsInterfaceModuleVersionCheck(int ifaceVersion)
+int mrbfsInterfaceDriverVersionCheck(int ifaceVersion)
 {
 	if (ifaceVersion != MRBFS_INTERFACE_DRIVER_VERSION)
 		return(0);

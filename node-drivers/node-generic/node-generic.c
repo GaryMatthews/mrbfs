@@ -22,12 +22,25 @@ int mrbfsNodeDriverVersionCheck(int ifaceVersion)
 	return(1);
 }
 
+typedef struct
+{
+	UINT32 pktsReceived;
+	UINT32 value;
+	MRBFSFileNode* file_packetsReceived;
+	MRBFSFileNode* file_mrzero;
+
+} NodeLocalStorage;
+
 int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 {
 	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_INFO, "Node [%s] starting up", mrbfsNode->nodeName);
-	// FIXME - create some sort of files here
-
-
+	NodeLocalStorage* nodeLocalStorage = (NodeLocalStorage*)mrbfsNode->nodeLocalStorage;
+	
+	nodeLocalStorage = calloc(1, sizeof(NodeLocalStorage));
+	
+	nodeLocalStorage->pktsReceived = 0;
+	nodeLocalStorage->file_packetsReceived = (*mrbfsNode->mrbfsFilesystemAddFile)("packetsReceived", FNODE_RW_VALUE_INT, mrbfsNode->path);
+	nodeLocalStorage->file_mrzero = (*mrbfsNode->mrbfsFilesystemAddFile)("mrzero", FNODE_RO_VALUE_INT, mrbfsNode->path);
 	return (0);
 }
 

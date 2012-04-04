@@ -319,7 +319,7 @@ int mrbfsOpenInterfaces()
 		free(modulePath);
 
 		// Now do some cursory version checks
-		MRBFSInterfaceDriverVersionCheck = dlsym(interfaceDriverHandle, "MRBFSInterfaceDriverVersionCheck");
+		MRBFSInterfaceDriverVersionCheck = dlsym(interfaceDriverHandle, "mrbfsInterfaceDriverVersionCheck");
 		if(NULL == MRBFSInterfaceDriverVersionCheck || !(*MRBFSInterfaceDriverVersionCheck)(MRBFS_INTERFACE_DRIVER_VERSION))
 		{
 			mrbfsLogMessage(MRBFS_LOG_ERROR, "Interface [%s] - module version check failed", interfaceName);
@@ -337,7 +337,7 @@ int mrbfsOpenInterfaces()
 		mrbfsInterfaceDriver->port = strdup(cfg_getstr(cfgInterface, "port"));
 		mrbfsInterfaceDriver->addr = strtol(cfg_getstr(cfgInterface, "interface-address"), NULL, 36);
 		
-		mrbfsInterfaceDriver->mrbfsInterfaceDriverRun = dlsym(interfaceDriverHandle, "MRBFSInterfaceDriverRun");
+		mrbfsInterfaceDriver->mrbfsInterfaceDriverRun = dlsym(interfaceDriverHandle, "mrbfsInterfaceDriverRun");
 		if(NULL == mrbfsInterfaceDriver->mrbfsInterfaceDriverRun)
 		{
 			mrbfsLogMessage(MRBFS_LOG_ERROR, "Interface [%s] - module doesn't have a runnable function", interfaceName);
@@ -493,6 +493,8 @@ typedef struct MRBFSBusNode
 		node->mrbfsNodeInit = dlsym(nodeDriverHandle, "mrbfsNodeInit");
 		node->mrbfsNodeDestroy = dlsym(nodeDriverHandle, "mrbfsNodeDestroy");
 		node->baseFileNode = mrbfsFilesystemAddFile(modulePath, FNODE_DIR_NODE, fsPath);
+
+		(*node->mrbfsNodeInit)(node);
 
 		pthread_mutex_lock(&gMrbfsConfig->bus[bus]->busLock);
 		gMrbfsConfig->bus[bus]->node[address] = node;
