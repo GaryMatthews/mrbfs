@@ -33,7 +33,6 @@ cfg_opt_t node_opts[] =
 {
 	CFG_INT("bus", 0, CFGF_NONE),
 	CFG_STR("driver", 0, CFGF_NONE),
-	CFG_STR("port", 0, CFGF_NONE),
 	CFG_STR("address", 0, CFGF_NONE),
 	CFG_END()
 };
@@ -43,6 +42,7 @@ cfg_opt_t opts[] =
 	CFG_STR("log-file", "mrbfs.log", CFGF_NONE),
 	CFG_STR("module-directory", "modules/", CFGF_NONE),
 	CFG_SEC("interface", interface_opts, CFGF_MULTI | CFGF_TITLE),
+	CFG_SEC("node", node_opts, CFGF_MULTI | CFGF_TITLE),	
 //   CFG_SEC("page", page_opts, CFGF_MULTI | CFGF_TITLE),
    
    CFG_END()

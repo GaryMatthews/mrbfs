@@ -30,10 +30,33 @@ static void* mrbfsInit(struct fuse_conn_info *conn)
 
 }
 
+void mrbfsInterfacesDestroy()
+{
+	int i;
+	// Give the interfaces the chance to terminate gracefully
+	for(i = 0; i < gMrbfsConfig->mrbfsUsedInterfaces; i++)
+	{
+		gMrbfsConfig->mrbfsInterfaceModules[i]->terminate = 1;
+	}
+	
+	sleep(1);
+	
+	// Now just kill whatever's left
+	for(i = 0; i < gMrbfsConfig->mrbfsUsedInterfaces; i++)
+	{
+		pthread_cancel(gMrbfsConfig->mrbfsInterfaceModules[i]->interfaceThread);
+		// Deallocate its storate
+		free(gMrbfsConfig->mrbfsInterfaceModules[i]->interfaceName);
+		free(gMrbfsConfig->mrbfsInterfaceModules[i]->port);
+		free(gMrbfsConfig->mrbfsInterfaceModules[i]);
+	}
+	
+}
+
 static void mrbfsDestroy(void* v)
 {
-//	pthread_cancel(mrbfsGlobalListenerThread);
 	mrbfsFilesystemDestroy();
+	mrbfsInterfacesDestroy();
    cfg_free(gMrbfsConfig->cfgParms);	
 }
 
@@ -166,8 +189,8 @@ int mrbfsRemoveNode(MRBFSBus* bus, UINT8 nodeNumber)
 
 	pthread_mutex_lock(&node->nodeLock);
 	
-	if (NULL != node->name)
-		free(node->name);
+	if (NULL != node->nodeName)
+		free(node->nodeName);
 	
 	// FIXME: Need to free the actual node module, but for now it'll just leak
 
@@ -203,50 +226,7 @@ int mrbfsRemoveBus(UINT8 busNumber)
 	return(0);
 }
 
-int mrbfsAddNode(MRBFSBus* bus, UINT8 address)
-{
-	MRBFSBusNode* node = bus->node[address];
-	int ret;
-	const char* name = "Unknown";
 
-	if (NULL != bus->node[address])
-	{
-		mrbfsLogMessage(MRBFS_LOG_ERROR, "Bus %d already has node [0x%02X]", bus->bus, address);
-		return(1);
-	}
-
-	pthread_mutex_lock(&bus->busLock);
-
-	node = bus->node[address] = (MRBFSBusNode*)calloc(1, sizeof(MRBFSBusNode));
-	if (NULL == node)
-	{
-		mrbfsLogMessage(MRBFS_LOG_ERROR, "Calloc() failed on allocating node [0x%02X] on bus", address, bus->bus);
-		exit(1);
-	}
-
-	{
-		// Node lock initialization
-		pthread_mutexattr_t lockAttr;
-		// Initialize the master lock
-		pthread_mutexattr_init(&lockAttr);
-		pthread_mutexattr_settype(&lockAttr, PTHREAD_MUTEX_ADAPTIVE_NP);
-		pthread_mutex_init(&node->nodeLock, &lockAttr);
-		pthread_mutexattr_destroy(&lockAttr);		
-	}
-	
-	pthread_mutex_lock(&node->nodeLock);
-
-	node->updateTime = time(NULL);
-	node->address = address;
-	
-	// FIXME - Do name lookup in conf file here
-	ret = asprintf(&node->name, "0x%02X - %s", address, name);
-
-	// FIXME - Set up linkage to module here 
-
-	pthread_mutex_unlock(&node->nodeLock);	
-
-}
 
 int mrbfsAddBus(UINT8 busNumber)
 {
@@ -337,7 +317,7 @@ int mrbfsOpenInterfaces()
 
 		// Now do some cursory version checks
 		mrbfsInterfaceModuleVersionCheck = dlsym(interfaceDriverHandle, "mrbfsInterfaceModuleVersionCheck");
-		if(NULL == mrbfsInterfaceModuleVersionCheck || !(*mrbfsInterfaceModuleVersionCheck)(MRBFS_INTERFACE_MODULE_VERSION))
+		if(NULL == mrbfsInterfaceModuleVersionCheck || !(*mrbfsInterfaceModuleVersionCheck)(MRBFS_INTERFACE_DRIVER_VERSION))
 		{
 			mrbfsLogMessage(MRBFS_LOG_ERROR, "Interface [%s] - module version check failed", interfaceName);
 			continue;
@@ -385,6 +365,152 @@ int mrbfsOpenInterfaces()
 		
 	}
 
-
+	return(0);
 }
 
+/*
+
+typedef struct MRBFSInterfaceModule
+{
+	void* interfaceDriverHandle;
+	pthread_t interfaceThread;
+	char* interfaceName;
+	char* port;
+	UINT8 bus;
+	UINT8 addr;
+	UINT8 terminate;
+	
+	// Function pointers from main to the module
+	int (*mrbfsLogMessage)(mrbfsLogLevel, const char*, ...);
+	MRBFSNode* (*mrbfsGetNode)(UINT8);
+	
+	// Function pointers from the module to main
+	void (*mrbfsInterfaceModuleRun)(struct MRBFSInterfaceModule* mrbfsInterfaceModule);
+	
+	void* moduleLocalStorage;
+	
+} MRBFSInterfaceModule;
+
+
+typedef struct MRBFSBusNode
+{
+	time_t updateTime;
+	UINT8 address;
+	char* name;
+	MRBFSNodeModule nodeModule;
+	void* moduleLocalStorage;	
+  	pthread_mutex_t nodeLock;	
+} MRBFSBusNode;
+
+typedef struct
+{
+	UINT8 bus;
+	MRBFSBusNode* node[256];
+  	pthread_mutex_t busLock;
+} MRBFSBus;
+*/
+
+
+int mrbfsLoadNodes()
+{
+	int nodes = cfg_size(gMrbfsConfig->cfgParms, "node");
+	int i=0, err=0;
+	
+	mrbfsLogMessage(MRBFS_LOG_INFO, "Starting configuration of nodes (%d)", nodes);
+
+	for(i=0; i<nodes; i++)
+	{
+		char* modulePath = NULL;
+		MRBFSBusNode* node = NULL;
+		char* fsPath = NULL;
+		void* nodeDriverHandle = NULL;
+		int (*mrbfsNodeDriverVersionCheck)(int);
+		int ret;
+
+		cfg_t *cfgNode = cfg_getnsec(gMrbfsConfig->cfgParms, "node", i);
+		const char* nodeName = cfg_title(cfgNode);
+		UINT8 bus = cfg_getint(cfgNode, "bus");
+		UINT8 address = cfg_getint(cfgNode, "address");
+		
+		mrbfsLogMessage(MRBFS_LOG_INFO, "Node [%s] - Starting setup at bus %d, address 0x%02X", nodeName, bus, address);
+
+		if (NULL != gMrbfsConfig->bus[bus] && NULL != gMrbfsConfig->bus[bus]->node[address])
+		{
+			mrbfsLogMessage(MRBFS_LOG_ERROR, "Node [%s] - conflicts with node [%s] already at bus %d, address 0x%02X", nodeName, gMrbfsConfig->bus[bus]->node[address]->nodeName, bus, address);		
+			continue;
+		}
+
+		if (NULL == gMrbfsConfig->bus[bus])
+			mrbfsAddBus(bus);
+
+		ret = asprintf(&modulePath, "%s/%s", cfg_getstr(gMrbfsConfig->cfgParms, "module-directory"), cfg_getstr(cfgNode, "driver"));
+				
+		// First, test if the driver module exists
+		if (!fileExists(modulePath))
+		{
+			mrbfsLogMessage(MRBFS_LOG_ERROR, "Node [%s] - driver module [%s] not found at [%s]", nodeName, cfg_getstr(cfgNode, "driver"), modulePath);
+			free(modulePath);
+			continue;
+		}
+
+		// Test to make sure the dynamic linker can open it
+		if (NULL == (nodeDriverHandle= (void*)dlopen(modulePath, RTLD_LAZY))) 
+		{
+			mrbfsLogMessage(MRBFS_LOG_ERROR, "Node [%s] - driver module [%s] failed dlopen [%s]", nodeName, cfg_getstr(cfgNode, "driver"), NULL!=dlerror()?dlerror():"");
+			free(modulePath);
+			continue;
+		}
+
+		// Now do some cursory version checks
+		mrbfsNodeDriverVersionCheck = dlsym(nodeDriverHandle, "mrbfsNodeDriverVersionCheck");
+		if(NULL == mrbfsNodeDriverVersionCheck || !(*mrbfsNodeDriverVersionCheck)(MRBFS_NODE_DRIVER_VERSION))
+		{
+			mrbfsLogMessage(MRBFS_LOG_ERROR, "Node [%s] - module version check failed", nodeName);
+			continue;
+		}
+
+		mrbfsLogMessage(MRBFS_LOG_DEBUG, "Node [%s] - dynamic library sanity checks pass", nodeName);
+		free(modulePath);
+
+
+		node = (MRBFSBusNode*)calloc(1, sizeof(MRBFSBusNode));
+		if (NULL == node)
+		{
+			mrbfsLogMessage(MRBFS_LOG_ERROR, "Calloc() failed on allocating node [%s] at bus %d at address 0x%02X", nodeName, bus, address);
+			exit(1);
+		}
+
+		{
+			// Node lock initialization
+			pthread_mutexattr_t lockAttr;
+			// Initialize the master lock
+			pthread_mutexattr_init(&lockAttr);
+			pthread_mutexattr_settype(&lockAttr, PTHREAD_MUTEX_ADAPTIVE_NP);
+			pthread_mutex_init(&node->nodeLock, &lockAttr);
+			pthread_mutexattr_destroy(&lockAttr);		
+		}
+
+		node->bus = bus;
+		node->address = address;
+		node->nodeDriverHandle = nodeDriverHandle;
+	
+		ret = asprintf(&modulePath, "0x%02X - %s", address, nodeName);
+		ret = asprintf(&fsPath, "/bus%d", bus);
+
+		pthread_mutex_lock(&gMrbfsConfig->bus[bus]->busLock);
+		gMrbfsConfig->bus[bus]->node[address] = node;
+		pthread_mutex_unlock(&gMrbfsConfig->bus[bus]->busLock);		
+
+		node->baseFileNode = mrbfsFilesystemAddFile(modulePath, FNODE_DIR_NODE, fsPath);
+
+
+
+		
+		free(modulePath);
+		free(fsPath);
+
+	}
+
+	mrbfsLogMessage(MRBFS_LOG_INFO, "Completed configuration of nodes");
+	return(0);	
+}

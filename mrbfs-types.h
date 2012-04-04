@@ -6,8 +6,8 @@
 
 #define MRBFS_VERSION "0.0.1"
 
-#define MRBFS_INTERFACE_MODULE_VERSION   0x01000001
-#define MRBFS_NODE_MODULE_VERSION        0x02000001
+#define MRBFS_INTERFACE_DRIVER_VERSION   0x01000001
+#define MRBFS_NODE_DRIVER_VERSION        0x02000001
 
 typedef unsigned long UINT32 ;
 typedef unsigned char UINT8 ;
@@ -65,14 +65,28 @@ typedef struct MRBFSFileNode
 } MRBFSFileNode;
 
 
-typedef struct
+typedef struct MRBFSBusNode
 {
-	time_t updateTime;
+	void* nodeDriverHandle;
+	char* nodeName;
+  	pthread_mutex_t nodeLock;
+	UINT8 bus;
 	UINT8 address;
-	char* name;
-	MRBFSNodeModule nodeModule;
-	void* moduleLocalStorage;	
-  	pthread_mutex_t nodeLock;	
+	void* nodeLocalStorage;
+	char* path;
+	MRBFSFileNode* baseFileNode;
+
+		
+	// Function pointers from main to the node module
+	int (*mrbfsLogMessage)(mrbfsLogLevel, const char*, ...);
+	MRBFSNode* (*mrbfsGetNode)(UINT8);
+	MRBFSFileNode* (*mrbfsFilesystemAddFile)(const char* fileName, MRBFSFileNodeType fileType, const char* insertionPath);
+
+	// Function pointers from the node to main
+	int (*mrbfsNodeInit)(struct MRBFSBusNode*);
+	
+	int (*mrbfsNodeDestroy)(struct MRBFSBusNode*);
+	
 } MRBFSBusNode;
 
 typedef struct
@@ -101,8 +115,8 @@ typedef struct MRBFSInterfaceModule
 {
 	void* interfaceDriverHandle;
 	pthread_t interfaceThread;
-	const char* interfaceName;
-	const char* port;
+	char* interfaceName;
+	char* port;
 	UINT8 bus;
 	UINT8 addr;
 	UINT8 terminate;

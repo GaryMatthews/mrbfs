@@ -68,7 +68,7 @@ MRBFSFileNode* mrbfsTraversePath(const char* inputPath, MRBFSFileNode* rootNode,
 			{
 				mrbfsLogMessage(MRBFS_LOG_DEBUG, "Examining [%s] as [%s]", dirNode->fileName, tmp);						
 			
-				if (0 == strcmp(tmp, dirNode->fileName) && FNODE_DIR == dirNode->fileType)
+				if (0 == strcmp(tmp, dirNode->fileName) && (FNODE_DIR == dirNode->fileType || FNODE_DIR_NODE == dirNode->fileType))
 				{
 					match = 1;
 					break;
@@ -153,7 +153,7 @@ MRBFSFileNode* mrbfsAddFileNode(const char* insertionPath, MRBFSFileNode* addNod
 	if (NULL != insertionNode)
 		mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsTraversePath() returned node [%s] - childPtr=%08X siblingPtr=%08X", insertionNode->fileName, insertionNode->childPtr, insertionNode->siblingPtr);	
 	
-	if (NULL == insertionNode || insertionNode->fileType != FNODE_DIR)
+	if (NULL == insertionNode || (insertionNode->fileType != FNODE_DIR && insertionNode->fileType != FNODE_DIR_NODE))
 	{
 		mrbfsLogMessage(MRBFS_LOG_DEBUG, "Cannot insert node [%s] into [%s]", insertionNode->fileName, insertionPath);
 		return(NULL);
@@ -245,6 +245,7 @@ int mrbfsGetattr(const char *path, struct stat *stbuf)
 	
 	switch(fileNode->fileType)
 	{
+		case FNODE_DIR_NODE:
 		case FNODE_DIR:
 			stbuf->st_mode = S_IFDIR | 0555;
 			stbuf->st_nlink = 2;
@@ -294,7 +295,7 @@ int mrbfsReaddir(const char *path, void *buf, fuse_fill_dir_t filler,
 	
 	mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsReaddir(%s), fileNode=%p", path, fileNode);
 	
-	if (NULL == fileNode || fileNode->fileType != FNODE_DIR)
+	if (NULL == fileNode || (fileNode->fileType != FNODE_DIR && fileNode->fileType != FNODE_DIR_NODE))
 		return -ENOENT;
 
 	mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsReaddir(%s) - got back filenode[%s], childPtr=%08X", path, fileNode->fileName, fileNode->childPtr);
