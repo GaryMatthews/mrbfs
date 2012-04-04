@@ -27,12 +27,13 @@ MRBFSConfig* gMrbfsConfig = NULL;
 static void* mrbfsInit(struct fuse_conn_info *conn)
 {
 	int err;
-//	err = pthread_create(&mrbfsGlobalListenerThread, NULL, (void*)&mrbfsListener, NULL);
+
 }
 
 static void mrbfsDestroy(void* v)
 {
 //	pthread_cancel(mrbfsGlobalListenerThread);
+	mrbfsFilesystemDestroy();
    cfg_free(gMrbfsConfig->cfgParms);	
 }
 
@@ -138,6 +139,12 @@ int main(int argc, char *argv[])
 	// Log a startup message and get on with starting the filesystem
 	mrbfsLogMessage(MRBFS_LOG_ERROR, "MRBFS Startup");
 
+	// Setup the initial filesystem
+	mrbfsFilesystemInitialize();
+
+	// Setup the interfaces
+	mrbfsOpenInterfaces();
+
 	return fuse_main(args.argc, args.argv, &mrbfsOperations, mrbfs_opt_proc);
 }
 
@@ -239,8 +246,6 @@ int mrbfsAddNode(MRBFSBus* bus, UINT8 address)
 
 	pthread_mutex_unlock(&node->nodeLock);	
 
-
-	pthread_mutex_unlock(&bus->busLock);
 }
 
 int mrbfsAddBus(UINT8 busNumber)
@@ -250,6 +255,8 @@ int mrbfsAddBus(UINT8 busNumber)
 	mrbfsLogMessage(MRBFS_LOG_DEBUG, "Master mutex lock acquired");
 	if (gMrbfsConfig->bus[busNumber] == NULL)
 	{
+		int ret;
+		char buffer[256];
 		pthread_mutexattr_t lockAttr;
 		gMrbfsConfig->bus[busNumber] = calloc(1, sizeof(MRBFSBus));
 		if (NULL == gMrbfsConfig->bus[busNumber])
@@ -259,11 +266,19 @@ int mrbfsAddBus(UINT8 busNumber)
 		}
 		gMrbfsConfig->bus[busNumber]->bus = busNumber;
 
-		// Initialize the master lock
+		// Initialize the bus lock
 		pthread_mutexattr_init(&lockAttr);
 		pthread_mutexattr_settype(&lockAttr, PTHREAD_MUTEX_ADAPTIVE_NP);
 		pthread_mutex_init(&gMrbfsConfig->bus[busNumber]->busLock, &lockAttr);
 		pthread_mutexattr_destroy(&lockAttr);
+		
+		// Add directory entries
+		sprintf(buffer, "bus%d", busNumber);
+		if (NULL == mrbfsFilesystemAddFile(buffer, FNODE_DIR, "/"))
+		{
+			mrbfsLogMessage(MRBFS_LOG_ERROR, "Failed to add bus [%d] directory, exiting", busNumber);
+			exit(1);
+		}		
 	}
 	else
 	{
@@ -279,7 +294,7 @@ int mrbfsAddBus(UINT8 busNumber)
 int mrbfsOpenInterfaces()
 {
 	int interfaces = cfg_size(gMrbfsConfig->cfgParms, "interface");
-	int i=0;
+	int i=0, err=0;
 
 	gMrbfsConfig->mrbfsUsedInterfaces = 0;
 	
@@ -295,6 +310,7 @@ int mrbfsOpenInterfaces()
 		int (*mrbfsInterfaceModuleVersionCheck)(int);
 		int ret;
 		cfg_t *cfgInterface = cfg_getnsec(gMrbfsConfig->cfgParms, "interface", i);
+		const char* interfaceName = cfg_title(cfgInterface);
 		
 		mrbfsLogMessage(MRBFS_LOG_INFO, "Setting up interface [%s]", cfg_title(cfgInterface));
 		ret = asprintf(&modulePath, "%s/%s", cfg_getstr(gMrbfsConfig->cfgParms, "module-directory"), cfg_getstr(cfgInterface, "driver"));
@@ -302,7 +318,7 @@ int mrbfsOpenInterfaces()
 		// First, test if the driver module exists
 		if (!fileExists(modulePath))
 		{
-			mrbfsLogMessage(MRBFS_LOG_ERROR, "Interface [%s] - driver module not found at [%s]", cfg_title(cfgInterface), modulePath);
+			mrbfsLogMessage(MRBFS_LOG_ERROR, "Interface [%s] - driver module not found at [%s]", interfaceName, modulePath);
 			free(modulePath);
 			continue;
 		}
@@ -310,10 +326,12 @@ int mrbfsOpenInterfaces()
 		// Test to make sure the dynamic linker can open it
 		if (NULL == (interfaceDriverHandle= (void*)dlopen(modulePath, RTLD_LAZY))) 
 		{
-			mrbfsLogMessage(MRBFS_LOG_ERROR, "Interface [%s] - driver module failed dlopen [%s]", cfg_title(cfgInterface), NULL!=dlerror()?dlerror():"");
+			mrbfsLogMessage(MRBFS_LOG_ERROR, "Interface [%s] - driver module failed dlopen [%s]", interfaceName, NULL!=dlerror()?dlerror():"");
 			free(modulePath);
 			continue;
 		}
+
+		mrbfsLogMessage(MRBFS_LOG_DEBUG, "Interface [%s] - sanity checks pass", interfaceName);
 
 		free(modulePath);
 
@@ -321,29 +339,48 @@ int mrbfsOpenInterfaces()
 		mrbfsInterfaceModuleVersionCheck = dlsym(interfaceDriverHandle, "mrbfsInterfaceModuleVersionCheck");
 		if(NULL == mrbfsInterfaceModuleVersionCheck || !(*mrbfsInterfaceModuleVersionCheck)(MRBFS_INTERFACE_MODULE_VERSION))
 		{
-			mrbfsLogMessage(MRBFS_LOG_ERROR, "Interface [%s] - module version check failed");
+			mrbfsLogMessage(MRBFS_LOG_ERROR, "Interface [%s] - module version check failed", interfaceName);
 			continue;
 		}
 		
 		// Okay, looks good, add it to the interface list and run the init function
 
+		mrbfsLogMessage(MRBFS_LOG_DEBUG, "Interface [%s] - actually adding interface", interfaceName);
+
 		mrbfsInterfaceModule = calloc(1, sizeof(MRBFSInterfaceModule));
 		mrbfsInterfaceModule->interfaceDriverHandle = interfaceDriverHandle;
-		mrbfsInterfaceModule->bus = cfg_getint(cfgInterface, "driver");
+		mrbfsInterfaceModule->interfaceName = strdup(interfaceName);
+		mrbfsInterfaceModule->bus = cfg_getint(cfgInterface, "bus");
 		mrbfsInterfaceModule->port = strdup(cfg_getstr(cfgInterface, "port"));
 		mrbfsInterfaceModule->addr = strtol(cfg_getstr(cfgInterface, "interface-address"), NULL, 36);
-
-
+		
+		mrbfsInterfaceModule->mrbfsInterfaceModuleRun = dlsym(interfaceDriverHandle, "mrbfsInterfaceModuleRun");
+		if(NULL == mrbfsInterfaceModule->mrbfsInterfaceModuleRun)
+		{
+			mrbfsLogMessage(MRBFS_LOG_ERROR, "Interface [%s] - module doesn't have a runnable function", interfaceName);
+			continue;
+		}	
+	
+	
 		mrbfsAddBus(mrbfsInterfaceModule->bus);
 
 		// Hook up the callbacks for the driver to talk to the main thread
 		//mrbfsInterfaceModule->mrbfsGetNode = &mrbfsGetNode;
 		mrbfsInterfaceModule->mrbfsLogMessage = &mrbfsLogMessage;
-	
 		
 		gMrbfsConfig->mrbfsInterfaceModules[gMrbfsConfig->mrbfsUsedInterfaces++] = mrbfsInterfaceModule;
 
-		mrbfsLogMessage(MRBFS_LOG_INFO, "Interface [%s] successfully set up in slot %d", cfg_title(cfgInterface), gMrbfsConfig->mrbfsUsedInterfaces-1);
+		mrbfsLogMessage(MRBFS_LOG_INFO, "Interface [%s] successfully set up in slot %d", mrbfsInterfaceModule->interfaceName, gMrbfsConfig->mrbfsUsedInterfaces-1);
+
+		err = pthread_create(&mrbfsInterfaceModule->interfaceThread, NULL, (void*)mrbfsInterfaceModule->mrbfsInterfaceModuleRun, mrbfsInterfaceModule);
+		if (err)
+		{
+			mrbfsLogMessage(MRBFS_LOG_INFO, "Interface [%s] failed to start", mrbfsInterfaceModule->interfaceName);
+			// FIXME - destroy interface
+			
+		}
+		else
+			mrbfsLogMessage(MRBFS_LOG_INFO, "Interface [%s] started successfully", mrbfsInterfaceModule->interfaceName);
 
 		
 	}

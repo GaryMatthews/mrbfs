@@ -41,6 +41,7 @@ MRBFSFileNode* mrbfsTraversePath(const char* inputPath, MRBFSFileNode* rootNode,
 	mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsTraversePath(%s), dirpath=[%s], filename=[%s]", inputPath, dirpath, filename);
 	if (0 == strcmp(filename, "/"))
 	{
+		mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsTraversePath(%s) - Looking for root, returning root", inputPath);
 		if (NULL != parentDirectoryNode)
 			*parentDirectoryNode = NULL;
 		return(rootNode);
@@ -49,9 +50,11 @@ MRBFSFileNode* mrbfsTraversePath(const char* inputPath, MRBFSFileNode* rootNode,
    if (dirpath[0] == '/')
       dirpath++;
 
+	pthread_mutex_lock(&gMrbfsConfig->fsLock);
+
 	if (strlen(dirpath))
 	{
-		mrbfsLogMessage(MRBFS_LOG_DEBUG, "Traversing directories");
+		mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsTraversePath(%s) - starting directory traversal", inputPath);
 
 		// Go traverse to the right depth
 		for (tmp = strsep(&dirpath, "/"); NULL != tmp; tmp = strsep(&dirpath, "/"))
@@ -73,12 +76,12 @@ MRBFSFileNode* mrbfsTraversePath(const char* inputPath, MRBFSFileNode* rootNode,
 				dirNode = dirNode->siblingPtr;
 			}
 			if (0 == match)
+			{
+				pthread_mutex_unlock(&gMrbfsConfig->fsLock);
 				return(NULL);
+			}
 		}
 	}
-	
-	i=0;
-	match=0;
 	
 	fileNode = dirNode->childPtr;
 	if (NULL != parentDirectoryNode)
@@ -86,79 +89,139 @@ MRBFSFileNode* mrbfsTraversePath(const char* inputPath, MRBFSFileNode* rootNode,
 
 	while(NULL != fileNode)
 	{
-		mrbfsLogMessage(MRBFS_LOG_DEBUG, "Examining [%s] as [%s]", fileNode->fileName, filename);	
+		mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsTraversePath(%s) - examining [%s] as [%s]", inputPath, fileNode->fileName, filename);	
 		if (0 == strcmp(filename, fileNode->fileName))
 		{
-//				if (FNODE_DIR == fileNode[i].type)
-//					return(fileNode[i].value.dirFnodeList);
-				return (&fileNode[i]);
+				pthread_mutex_unlock(&gMrbfsConfig->fsLock);
+				return (fileNode);
 		}
 		fileNode = fileNode->siblingPtr;
 	}	
 
+	pthread_mutex_unlock(&gMrbfsConfig->fsLock);
 	return(NULL);
 }
 
+MRBFSFileNode* mrbfsFilesystemAddFile(const char* fileName, MRBFSFileNodeType fileType, const char* insertionPath)
+{
+	MRBFSFileNode* node = calloc(1, sizeof(MRBFSFileNode));
+	node->fileName = strdup(fileName);
+	node->fileType = fileType;
+	node->updateTime = node->accessTime = time(NULL);
+	return(mrbfsAddFileNode(insertionPath, node));
+}
+
+int mrbfsFilesystemInitialize()
+{
+	mrbfsLogMessage(MRBFS_LOG_INFO, "Setting up filesystem root");
+	pthread_mutexattr_t lockAttr;
+	
+	// Initialize the bus lock
+	pthread_mutexattr_init(&lockAttr);
+	pthread_mutexattr_settype(&lockAttr, PTHREAD_MUTEX_ADAPTIVE_NP);
+	pthread_mutex_init(&gMrbfsConfig->fsLock, &lockAttr);
+	pthread_mutexattr_destroy(&lockAttr);	
+	
+	pthread_mutex_lock(&gMrbfsConfig->fsLock);
+	gMrbfsConfig->rootNode = calloc(1, sizeof(MRBFSFileNode));
+	gMrbfsConfig->rootNode->fileName = strdup("/");
+	gMrbfsConfig->rootNode->fileType = FNODE_DIR;
+	pthread_mutex_unlock(&gMrbfsConfig->fsLock);
+
+	mrbfsFilesystemAddFile("interfaces", FNODE_DIR, "/");
+	mrbfsFilesystemAddFile("stats", FNODE_DIR, "/");	
+	return(0);
+}
+
+
+int mrbfsFilesystemDestroy()
+{
+	// FIXME:  Do stuff here
+	return(0);
+
+}
 
 MRBFSFileNode* mrbfsAddFileNode(const char* insertionPath, MRBFSFileNode* addNode)
 {
 	int i;
 	MRBFSFileNode *insertionNode, *node, *prevnode, *parentNode;
 	
-	if (NULL == gMrbfsConfig->rootNode)
-	{
-		mrbfsLogMessage(MRBFS_LOG_INFO, "Setting up filesystem root");
-		gMrbfsConfig->rootNode = calloc(1, sizeof(MRBFSFileNode));
-		gMrbfsConfig->rootNode->fileName = strdup("/");
-		gMrbfsConfig->rootNode->fileType = FNODE_DIR;
-	
-	}
-	
+	mrbfsLogMessage(MRBFS_LOG_INFO, "Adding node [%s] to directory [%s]", addNode->fileName, insertionPath);
 	
 	insertionNode = mrbfsTraversePath(insertionPath, gMrbfsConfig->rootNode, &parentNode);
+	
+	if (NULL != insertionNode)
+		mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsTraversePath() returned node [%s] - childPtr=%08X siblingPtr=%08X", insertionNode->fileName, insertionNode->childPtr, insertionNode->siblingPtr);	
+	
 	if (NULL == insertionNode || insertionNode->fileType != FNODE_DIR)
 	{
 		mrbfsLogMessage(MRBFS_LOG_DEBUG, "Cannot insert node [%s] into [%s]", insertionNode->fileName, insertionPath);
 		return(NULL);
 	}
 
-	node = insertionNode->childPtr;
-	prevnode = NULL;
+	pthread_mutex_lock(&gMrbfsConfig->fsLock);
 
-	while (node != NULL)
+	if (NULL == insertionNode->childPtr)
 	{
-		if (0 == strcmp(node->fileName, addNode->fileName))
-		{
-			mrbfsLogMessage(MRBFS_LOG_ERROR, "Node of name [%s] already exists", addNode->fileName);
-			return(NULL);
-		} 
-		else if (0 < strcmp(addNode->fileName, node->fileName))
-		{
-			// Insert here on the front end - need to change parent child ptr
-			if (NULL == prevnode)
-				insertionNode->childPtr = addNode;
-			else
-				prevnode->childPtr = addNode;
-				
-			addNode->childPtr = NULL;
-			addNode->siblingPtr = node;
-			break;
-		}
-		else
-		prevnode = node;
-		node = node->siblingPtr;
+		mrbfsLogMessage(MRBFS_LOG_DEBUG, "Directory [%s] has no child ptr, adding [%s]", insertionNode->fileName, addNode->fileName);
+		insertionNode->childPtr = addNode;
+		addNode->childPtr = NULL;
+		addNode->siblingPtr = NULL;		
 	}
+	else
+	{
+		mrbfsLogMessage(MRBFS_LOG_DEBUG, "Directory [%s] has children, searching for add point for [%s]", insertionNode->fileName, addNode->fileName);
 
-	if (node == NULL)
-	{
-			if (NULL == prevnode)
-				insertionNode->childPtr = addNode;
-			else
-				prevnode->childPtr = addNode;
+		node = insertionNode->childPtr;
+		prevnode = NULL;
+
+		do
+		{
+			mrbfsLogMessage(MRBFS_LOG_DEBUG, "Examining node [%s] - childPtr=%08X siblingPtr=%08X", node->fileName, node->childPtr, node->siblingPtr);	
+
+			if (0 == strcmp(node->fileName, addNode->fileName))
+			{
+				mrbfsLogMessage(MRBFS_LOG_ERROR, "Node of name [%s] already exists", addNode->fileName);
+				return(NULL);
+			} 
+			else if (0 > strcmp(addNode->fileName, node->fileName))
+			{
+				mrbfsLogMessage(MRBFS_LOG_DEBUG, "Adding [%s] on front of chain for node [%s]", addNode->fileName, insertionNode->fileName);	
+				// Insert here on the front end - need to change parent child ptr
+				if (NULL == prevnode)
+				{
+					mrbfsLogMessage(MRBFS_LOG_DEBUG, "Adding [%s] on front of chain for node [%s]", addNode->fileName, insertionNode->fileName);	
+					insertionNode->childPtr = addNode;
+				}
+				else
+				{
+					mrbfsLogMessage(MRBFS_LOG_DEBUG, "Adding [%s] before node [%s]", addNode->fileName, prevnode->fileName);	
+					prevnode->childPtr = addNode;
+				}
 				
-			addNode->childPtr = NULL;
-			addNode->siblingPtr = node;
+				addNode->childPtr = NULL;
+				addNode->siblingPtr = node;
+				break;
+			}
+			else
+			{
+				if (NULL == node->siblingPtr)
+				{
+					mrbfsLogMessage(MRBFS_LOG_DEBUG, "Adding [%s] on the end of the chain", addNode->fileName);
+					node->siblingPtr = addNode;
+					addNode->childPtr = NULL;
+					addNode->siblingPtr = NULL;
+					break;
+				}
+
+				mrbfsLogMessage(MRBFS_LOG_DEBUG, "Advancing");	
+				prevnode = node;
+				node = node->siblingPtr;
+			}
+		} while (node != NULL);
 	}
+	pthread_mutex_unlock(&gMrbfsConfig->fsLock);
+
 	return(addNode);
 }
 
@@ -166,11 +229,19 @@ int mrbfsGetattr(const char *path, struct stat *stbuf)
 {
 	int retval = -ENOENT;
 	MRBFSFileNode *parentNode, *fileNode = mrbfsTraversePath(path, gMrbfsConfig->rootNode, &parentNode);
-
-	mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsGetattr(%s), fileNode=%p", path, fileNode);
+	struct fuse_context *fc = fuse_get_context();
 	
 	if (NULL == fileNode)
-		return(retval);
+	{
+		mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsGetattr(%s) returned NULL", path);
+		return(-ENOENT);
+	}
+	mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsGetattr(%s), fileNode=[%s]", path, fileNode->fileName);
+	
+	stbuf->st_uid = fc->uid;
+	stbuf->st_gid = fc->gid;
+	stbuf->st_ctime = stbuf->st_mtime = fileNode->updateTime;
+	stbuf->st_atime = fileNode->accessTime;
 	
 	switch(fileNode->fileType)
 	{
@@ -194,14 +265,14 @@ int mrbfsGetattr(const char *path, struct stat *stbuf)
 			retval = 0;			
 			break;
 
-		case FNODE_WRITABLE_VALUE_STR:
+		case FNODE_RW_VALUE_STR:
 			stbuf->st_mode = S_IFREG | 0664;
 			stbuf->st_nlink = 1;
 			stbuf->st_size = strlen(fileNode->value.valueStr);
 			retval = 0;			
 			break;
 			
-		case FNODE_WRITABLE_VALUE_INT:
+		case FNODE_RW_VALUE_INT:
 			stbuf->st_mode = S_IFREG | 0664;
 			stbuf->st_nlink = 1;
 			stbuf->st_size = 1;
@@ -226,34 +297,52 @@ int mrbfsReaddir(const char *path, void *buf, fuse_fill_dir_t filler,
 	if (NULL == fileNode || fileNode->fileType != FNODE_DIR)
 		return -ENOENT;
 
-	if (fileNode->childPtr != NULL)
-		fileNode = fileNode->childPtr;
+	mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsReaddir(%s) - got back filenode[%s], childPtr=%08X", path, fileNode->fileName, fileNode->childPtr);
 
-	while(fileNode->siblingPtr != NULL)
+	// It's a directory, auto-populate . and ..
+	filler(buf, ".", NULL, 0);	
+	filler(buf, "..", NULL, 0);	
+
+	fileNode = fileNode->childPtr;
+	while (NULL != fileNode)
 	{
 		filler(buf, fileNode->fileName, NULL, 0);
 		fileNode = fileNode->siblingPtr;
-	}	
+	}
+
 	return(0);
 }
 
 int mrbfsOpen(const char *path, struct fuse_file_info *fi)
 {
-	if (0 != strcmp("/pktsReceived", path))
-		return -ENOENT;
+	int retval = -ENOENT;
+	MRBFSFileNode *parentNode, *fileNode = mrbfsTraversePath(path, gMrbfsConfig->rootNode, &parentNode);
 
-	if ((fi->flags & 3) != O_RDONLY)
+	if (NULL == fileNode)
+	{
+		mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsOpen(%s) - path [%s] not valid", path);
+		return(-ENOENT);
+	}
+	mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsOpen(%s) found file", path);
+
+	if (fileNode->fileType != FNODE_RW_VALUE_STR && fileNode->fileType != FNODE_RW_VALUE_INT)
+	{
+		mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsOpen(%s) rejected - not writable node", path);
 		return -EACCES;
+	}
+	mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsOpen(%s) successful", path);
 	fi->direct_io = 1;
-
-
 	return 0;
 }
 
 int mrbfsRead(const char *path, char *buf, size_t size, off_t offset, struct fuse_file_info *fi)
 {
 	MRBFSFileNode *parentNode, *fileNode = mrbfsTraversePath(path, gMrbfsConfig->rootNode, &parentNode);
-
+	if (NULL == fileNode)
+	{
+		mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsRead(%s) - path [%s] not valid", path);
+		return(-ENOENT);
+	}
 
 
 	return size;

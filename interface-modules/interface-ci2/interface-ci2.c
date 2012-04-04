@@ -1,3 +1,18 @@
+#include <dlfcn.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <malloc.h>
+#include <libgen.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <termios.h>
+#include <stdio.h>
+#include <pthread.h>
+#include <unistd.h>
+#include "mrbfs-module.h"
 
 
 int mrbfsInterfaceModuleVersionCheck(int ifaceVersion)
@@ -7,31 +22,30 @@ int mrbfsInterfaceModuleVersionCheck(int ifaceVersion)
 	return(1);
 }
 
+static void mrbfsCI2SerialClose(int fd)
+{
+}
 
-static void mrbus_driver_serial()
+static int mrbfsCI2SerialOpen(const char* device, speed_t baudrate)
 {
 	int fd, n;
 	struct termios options;
-	char buffer[256];
-	char *bufptr;      // Current char in buffer 
 	int  nbytes;       // Number of bytes read 
-	fd_set         input;
 	struct timeval timeout;
 
-	fd = open(MODEMDEVICE, O_RDWR | O_NOCTTY | O_NDELAY); 
+	fd = open(device, O_RDWR | O_NOCTTY | O_NDELAY); 
    if (fd < 0)
 	{
-		perror(MODEMDEVICE); exit(-1); 
+		perror(device); exit(-1); 
 	}
 	fcntl(fd, F_SETFL, 0);
 
-	FD_ZERO(&input);
-	FD_SET(fd, &input);
-
 	tcgetattr(fd,&options); // save current serial port settings 
 
-	cfsetispeed(&options, B115200);
-	cfsetospeed(&options, B115200);
+
+
+	cfsetispeed(&options, baudrate);
+	cfsetospeed(&options, baudrate);
 
    options.c_cflag &= ~CSIZE; // Mask the character size bits 
    options.c_cflag |= CS8;    // Select 8 data bits 
@@ -46,33 +60,66 @@ static void mrbus_driver_serial()
    tcflush(fd, TCIFLUSH);
 	tcsetattr(fd, TCSAFLUSH, &options);
 
+	return(fd);
 
-	timeout.tv_sec  = 0;
-	timeout.tv_usec = 500;
-	n = select(fd, &input, NULL, NULL, &timeout);
-   
-	if (n > 0)
-	{
-      /* We have input */
-      if (FD_ISSET(fd, &input))
-		{
-			while ((nbytes = read(fd, bufptr, buffer + sizeof(buffer) - bufptr - 1)) > 0)
-			{
-			
-			
-			}
-		}
-	}
-
-
-	do
-	{
-		while ((nbytes = read(fd, bufptr, buffer + sizeof(buffer) - bufptr - 1)) > 0)
-		{
-		  bufptr += nbytes;
-		  if (bufptr[-1] == '\n' || bufptr[-1] == '\r')
-			      break;
-		}
-
-	} while(1);
 }
+
+
+
+void mrbfsInterfaceModuleRun(MRBFSInterfaceModule* mrbfsInterfaceModule)
+{
+	UINT8 buffer[256];
+	UINT8 *bufptr;      // Current char in buffer 
+   UINT8 pktBuf[256];
+   UINT8 incomingByte[2];
+	int fd = -1, nbytes=0;	
+
+	(*mrbfsInterfaceModule->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface module [%s] confirms startup", mrbfsInterfaceModule->interfaceName);
+
+   memset(buffer, 0, sizeof(buffer));
+   bufptr = buffer;
+
+	fd = mrbfsCI2SerialOpen("/dev/ttyS0", B115200);
+	(*mrbfsInterfaceModule->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface module [%s] opened serial on %d", mrbfsInterfaceModule->interfaceName, fd);
+
+
+   while(!mrbfsInterfaceModule->terminate)
+   {
+      usleep(1000);
+      while ((nbytes = read(fd, incomingByte, 1)) > 0)
+      {
+         switch(incomingByte[0])
+         {
+            case ' ': 
+            case 0x0A:
+               break;
+
+            case 0x0D:
+               // Try to parse whatever's in there
+               if ('P' == buffer[0])
+               {
+                  // It's a packet
+						// Give it back to the control thread
+//                  memset(mrbfsGlobalData.pktData, 0, sizeof(mrbfsGlobalData.pktData));
+ //                 strncpy(mrbfsGlobalData.pktData, buffer, sizeof(mrbfsGlobalData.pktData)-1);
+ //                 mrbfsGlobalData.pktsReceived++;
+  //                mrbfsGlobalData.pktAvailable=1;
+
+               }
+
+               memset(buffer, 0, sizeof(buffer));
+               bufptr = buffer;
+               break;
+
+            default:
+               *bufptr++ = incomingByte[0];
+               break;
+         }
+      }
+   }
+   
+	(*mrbfsInterfaceModule->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface module [%s] terminating", mrbfsInterfaceModule->interfaceName);   
+	phtread_exit(NULL);
+}
+
+

@@ -27,23 +27,6 @@ typedef struct
 	int (*mrbfsNodePacket)(UINT8* mrbusPacket, UINT8 mrbusPacketLen);
 } MRBFSNode;
 
-
-typedef struct
-{
-	void* interfaceDriverHandle;
-	pthread_t interfaceThread;
-	const char* interfaceName;
-	const char* port;
-	UINT8 bus;
-	UINT8 addr;
-	
-	
-	int (*mrbfsLogMessage)(mrbfsLogLevel, const char*, ...);
-	MRBFSNode* (*mrbfsGetNode)(UINT8);
-	void* moduleLocalStorage;
-	
-} MRBFSInterfaceModule;
-
 typedef struct
 {
 	UINT8 stuff; // This is a placeholder
@@ -65,8 +48,8 @@ typedef enum
 	FNODE_DIR_NODE,	
 	FNODE_RO_VALUE_STR,
 	FNODE_RO_VALUE_INT,
-	FNODE_WRITABLE_VALUE_STR,
-	FNODE_WRITABLE_VALUE_INT,	
+	FNODE_RW_VALUE_STR,
+	FNODE_RW_VALUE_INT,	
 	FNODE_END_OF_LIST
 } MRBFSFileNodeType;
 
@@ -75,6 +58,8 @@ typedef struct MRBFSFileNode
 	char* fileName;
 	MRBFSFileNodeValue value;
 	MRBFSFileNodeType fileType;
+	time_t updateTime;
+	time_t accessTime;
 	struct MRBFSFileNode* childPtr;
 	struct MRBFSFileNode* siblingPtr;
 } MRBFSFileNode;
@@ -111,6 +96,28 @@ typedef struct
 } MRBFSInterfaceContext;
 
 #define MRBFS_MAX_INTERFACES   16
+
+typedef struct MRBFSInterfaceModule
+{
+	void* interfaceDriverHandle;
+	pthread_t interfaceThread;
+	const char* interfaceName;
+	const char* port;
+	UINT8 bus;
+	UINT8 addr;
+	UINT8 terminate;
+	
+	// Function pointers from main to the module
+	int (*mrbfsLogMessage)(mrbfsLogLevel, const char*, ...);
+	MRBFSNode* (*mrbfsGetNode)(UINT8);
+	
+	// Function pointers from the module to main
+	void (*mrbfsInterfaceModuleRun)(struct MRBFSInterfaceModule* mrbfsInterfaceModule);
+	
+	void* moduleLocalStorage;
+	
+} MRBFSInterfaceModule;
+
 
 typedef struct 
 {

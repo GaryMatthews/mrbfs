@@ -23,9 +23,9 @@ static struct fuse_opt mrbfs_opts[] = {
 cfg_opt_t interface_opts[] =
 {
 	CFG_INT("bus", 0, CFGF_NONE),
-	CFG_STR("driver", 0, CFGF_NONE),
-	CFG_STR("port", 0, CFGF_NONE),
-	CFG_STR("interface-address", 0, CFGF_NONE),
+	CFG_STR("driver", "interface-ci2.so", CFGF_NONE),
+	CFG_STR("port", "/dev/ttyUSB0", CFGF_NONE),
+	CFG_STR("interface-address", "0xFE", CFGF_NONE),
 	CFG_END()
 };
 

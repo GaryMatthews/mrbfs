@@ -48,7 +48,7 @@ void mrbfsSingleInitLogging()
 	if (NULL == logFileStr || 0 == strlen(logFileStr))
 		logFileStr = "mrbfs.log";
 
-	if (NULL == (gMrbfsConfig->logFile = fopen(logFileStr, "a")))
+	if (NULL == (gMrbfsConfig->logFile = fopen(logFileStr, "w")))
 	{
 		char* errorStr = "Cannot open log file";
 		ret = asprintf(&errorStr, "Cannot open log file [%s], exiting...", logFileStr);
