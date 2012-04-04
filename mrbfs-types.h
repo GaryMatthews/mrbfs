@@ -96,22 +96,9 @@ typedef struct
   	pthread_mutex_t busLock;
 } MRBFSBus;
 
-typedef struct 
-{
-	int (*mrbfsLogMessage)(mrbfsLogLevel logLevel, const char* format, ...);
-	UINT8 bus;
-	UINT8 address;
-	
-	MRBFSNode** (*mrbfsGetAffectedNodeList)(UINT8 bus, UINT8 srcAddress);
-	
-	// Thing to get node to enqueue messages
-	
-	
-} MRBFSInterfaceContext;
-
 #define MRBFS_MAX_INTERFACES   16
 
-typedef struct MRBFSInterfaceModule
+typedef struct MRBFSInterfaceDriver
 {
 	void* interfaceDriverHandle;
 	pthread_t interfaceThread;
@@ -126,11 +113,11 @@ typedef struct MRBFSInterfaceModule
 	MRBFSNode* (*mrbfsGetNode)(UINT8);
 	
 	// Function pointers from the module to main
-	void (*mrbfsInterfaceModuleRun)(struct MRBFSInterfaceModule* mrbfsInterfaceModule);
+	void (*mrbfsInterfaceDriverRun)(struct MRBFSInterfaceDriver* mrbfsInterfaceDriver);
 	
 	void* moduleLocalStorage;
 	
-} MRBFSInterfaceModule;
+} MRBFSInterfaceDriver;
 
 
 typedef struct 
@@ -140,7 +127,7 @@ typedef struct
    cfg_t* cfgParms;
    FILE* logFile;
   	pthread_mutex_t logLock;
-	MRBFSInterfaceModule* mrbfsInterfaceModules[MRBFS_MAX_INTERFACES];
+	MRBFSInterfaceDriver* mrbfsInterfaceDrivers[MRBFS_MAX_INTERFACES];
 	UINT8 mrbfsUsedInterfaces;
 	MRBFSBus* bus[256];
   	pthread_mutex_t masterLock;

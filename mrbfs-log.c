@@ -29,7 +29,24 @@ int mrbfsLogMessage(mrbfsLogLevel logLevel, const char* format, ...)
 //		return; 
 		
 	pthread_mutex_lock(&gMrbfsConfig->logLock);
-	fprintf(gMrbfsConfig->logFile, "%s", logTimeStr);
+
+	switch(logLevel)
+	{
+		case MRBFS_LOG_ERROR:
+			fprintf(gMrbfsConfig->logFile, "%s**ERROR** ", logTimeStr);
+			break;
+		case MRBFS_LOG_WARNING:
+			fprintf(gMrbfsConfig->logFile, "%s**WARNING** ", logTimeStr);
+			break;
+		
+		case MRBFS_LOG_INFO:
+		case MRBFS_LOG_DEBUG:
+		default:
+			fprintf(gMrbfsConfig->logFile, "%s", logTimeStr);
+			break;
+	}
+
+
 	va_start(argptr, format);
 	vfprintf(gMrbfsConfig->logFile, format, argptr);
 	va_end(argptr);

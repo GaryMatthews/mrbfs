@@ -36,7 +36,7 @@ void mrbfsInterfacesDestroy()
 	// Give the interfaces the chance to terminate gracefully
 	for(i = 0; i < gMrbfsConfig->mrbfsUsedInterfaces; i++)
 	{
-		gMrbfsConfig->mrbfsInterfaceModules[i]->terminate = 1;
+		gMrbfsConfig->mrbfsInterfaceDrivers[i]->terminate = 1;
 	}
 	
 	sleep(1);
@@ -44,11 +44,11 @@ void mrbfsInterfacesDestroy()
 	// Now just kill whatever's left
 	for(i = 0; i < gMrbfsConfig->mrbfsUsedInterfaces; i++)
 	{
-		pthread_cancel(gMrbfsConfig->mrbfsInterfaceModules[i]->interfaceThread);
+		pthread_cancel(gMrbfsConfig->mrbfsInterfaceDrivers[i]->interfaceThread);
 		// Deallocate its storate
-		free(gMrbfsConfig->mrbfsInterfaceModules[i]->interfaceName);
-		free(gMrbfsConfig->mrbfsInterfaceModules[i]->port);
-		free(gMrbfsConfig->mrbfsInterfaceModules[i]);
+		free(gMrbfsConfig->mrbfsInterfaceDrivers[i]->interfaceName);
+		free(gMrbfsConfig->mrbfsInterfaceDrivers[i]->port);
+		free(gMrbfsConfig->mrbfsInterfaceDrivers[i]);
 	}
 	
 }
@@ -168,6 +168,9 @@ int main(int argc, char *argv[])
 	// Setup the interfaces
 	mrbfsOpenInterfaces();
 
+	// Setup nodes we know about
+	mrbfsLoadNodes();
+
 	return fuse_main(args.argc, args.argv, &mrbfsOperations, mrbfs_opt_proc);
 }
 
@@ -286,8 +289,8 @@ int mrbfsOpenInterfaces()
 	{
 		char* modulePath = NULL;
 		void* interfaceDriverHandle = NULL;
-		MRBFSInterfaceModule* mrbfsInterfaceModule = NULL;
-		int (*mrbfsInterfaceModuleVersionCheck)(int);
+		MRBFSInterfaceDriver* mrbfsInterfaceDriver = NULL;
+		int (*MRBFSInterfaceDriverVersionCheck)(int);
 		int ret;
 		cfg_t *cfgInterface = cfg_getnsec(gMrbfsConfig->cfgParms, "interface", i);
 		const char* interfaceName = cfg_title(cfgInterface);
@@ -316,8 +319,8 @@ int mrbfsOpenInterfaces()
 		free(modulePath);
 
 		// Now do some cursory version checks
-		mrbfsInterfaceModuleVersionCheck = dlsym(interfaceDriverHandle, "mrbfsInterfaceModuleVersionCheck");
-		if(NULL == mrbfsInterfaceModuleVersionCheck || !(*mrbfsInterfaceModuleVersionCheck)(MRBFS_INTERFACE_DRIVER_VERSION))
+		MRBFSInterfaceDriverVersionCheck = dlsym(interfaceDriverHandle, "MRBFSInterfaceDriverVersionCheck");
+		if(NULL == MRBFSInterfaceDriverVersionCheck || !(*MRBFSInterfaceDriverVersionCheck)(MRBFS_INTERFACE_DRIVER_VERSION))
 		{
 			mrbfsLogMessage(MRBFS_LOG_ERROR, "Interface [%s] - module version check failed", interfaceName);
 			continue;
@@ -327,88 +330,46 @@ int mrbfsOpenInterfaces()
 
 		mrbfsLogMessage(MRBFS_LOG_DEBUG, "Interface [%s] - actually adding interface", interfaceName);
 
-		mrbfsInterfaceModule = calloc(1, sizeof(MRBFSInterfaceModule));
-		mrbfsInterfaceModule->interfaceDriverHandle = interfaceDriverHandle;
-		mrbfsInterfaceModule->interfaceName = strdup(interfaceName);
-		mrbfsInterfaceModule->bus = cfg_getint(cfgInterface, "bus");
-		mrbfsInterfaceModule->port = strdup(cfg_getstr(cfgInterface, "port"));
-		mrbfsInterfaceModule->addr = strtol(cfg_getstr(cfgInterface, "interface-address"), NULL, 36);
+		mrbfsInterfaceDriver = calloc(1, sizeof(MRBFSInterfaceDriver));
+		mrbfsInterfaceDriver->interfaceDriverHandle = interfaceDriverHandle;
+		mrbfsInterfaceDriver->interfaceName = strdup(interfaceName);
+		mrbfsInterfaceDriver->bus = cfg_getint(cfgInterface, "bus");
+		mrbfsInterfaceDriver->port = strdup(cfg_getstr(cfgInterface, "port"));
+		mrbfsInterfaceDriver->addr = strtol(cfg_getstr(cfgInterface, "interface-address"), NULL, 36);
 		
-		mrbfsInterfaceModule->mrbfsInterfaceModuleRun = dlsym(interfaceDriverHandle, "mrbfsInterfaceModuleRun");
-		if(NULL == mrbfsInterfaceModule->mrbfsInterfaceModuleRun)
+		mrbfsInterfaceDriver->mrbfsInterfaceDriverRun = dlsym(interfaceDriverHandle, "MRBFSInterfaceDriverRun");
+		if(NULL == mrbfsInterfaceDriver->mrbfsInterfaceDriverRun)
 		{
 			mrbfsLogMessage(MRBFS_LOG_ERROR, "Interface [%s] - module doesn't have a runnable function", interfaceName);
 			continue;
 		}	
 	
 	
-		mrbfsAddBus(mrbfsInterfaceModule->bus);
+		mrbfsAddBus(mrbfsInterfaceDriver->bus);
 
 		// Hook up the callbacks for the driver to talk to the main thread
-		//mrbfsInterfaceModule->mrbfsGetNode = &mrbfsGetNode;
-		mrbfsInterfaceModule->mrbfsLogMessage = &mrbfsLogMessage;
+		//MRBFSInterfaceDriver->mrbfsGetNode = &mrbfsGetNode;
+		mrbfsInterfaceDriver->mrbfsLogMessage = &mrbfsLogMessage;
 		
-		gMrbfsConfig->mrbfsInterfaceModules[gMrbfsConfig->mrbfsUsedInterfaces++] = mrbfsInterfaceModule;
+		gMrbfsConfig->mrbfsInterfaceDrivers[gMrbfsConfig->mrbfsUsedInterfaces++] = mrbfsInterfaceDriver;
 
-		mrbfsLogMessage(MRBFS_LOG_INFO, "Interface [%s] successfully set up in slot %d", mrbfsInterfaceModule->interfaceName, gMrbfsConfig->mrbfsUsedInterfaces-1);
+		mrbfsLogMessage(MRBFS_LOG_INFO, "Interface [%s] successfully set up in slot %d", mrbfsInterfaceDriver->interfaceName, gMrbfsConfig->mrbfsUsedInterfaces-1);
 
-		err = pthread_create(&mrbfsInterfaceModule->interfaceThread, NULL, (void*)mrbfsInterfaceModule->mrbfsInterfaceModuleRun, mrbfsInterfaceModule);
+		err = pthread_create(&mrbfsInterfaceDriver->interfaceThread, NULL, (void*)mrbfsInterfaceDriver->mrbfsInterfaceDriverRun, mrbfsInterfaceDriver);
 		if (err)
 		{
-			mrbfsLogMessage(MRBFS_LOG_INFO, "Interface [%s] failed to start", mrbfsInterfaceModule->interfaceName);
+			mrbfsLogMessage(MRBFS_LOG_INFO, "Interface [%s] failed to start", mrbfsInterfaceDriver->interfaceName);
 			// FIXME - destroy interface
 			
 		}
 		else
-			mrbfsLogMessage(MRBFS_LOG_INFO, "Interface [%s] started successfully", mrbfsInterfaceModule->interfaceName);
+			mrbfsLogMessage(MRBFS_LOG_INFO, "Interface [%s] started successfully", mrbfsInterfaceDriver->interfaceName);
 
 		
 	}
 
 	return(0);
 }
-
-/*
-
-typedef struct MRBFSInterfaceModule
-{
-	void* interfaceDriverHandle;
-	pthread_t interfaceThread;
-	char* interfaceName;
-	char* port;
-	UINT8 bus;
-	UINT8 addr;
-	UINT8 terminate;
-	
-	// Function pointers from main to the module
-	int (*mrbfsLogMessage)(mrbfsLogLevel, const char*, ...);
-	MRBFSNode* (*mrbfsGetNode)(UINT8);
-	
-	// Function pointers from the module to main
-	void (*mrbfsInterfaceModuleRun)(struct MRBFSInterfaceModule* mrbfsInterfaceModule);
-	
-	void* moduleLocalStorage;
-	
-} MRBFSInterfaceModule;
-
-
-typedef struct MRBFSBusNode
-{
-	time_t updateTime;
-	UINT8 address;
-	char* name;
-	MRBFSNodeModule nodeModule;
-	void* moduleLocalStorage;	
-  	pthread_mutex_t nodeLock;	
-} MRBFSBusNode;
-
-typedef struct
-{
-	UINT8 bus;
-	MRBFSBusNode* node[256];
-  	pthread_mutex_t busLock;
-} MRBFSBus;
-*/
 
 
 int mrbfsLoadNodes()
@@ -430,7 +391,7 @@ int mrbfsLoadNodes()
 		cfg_t *cfgNode = cfg_getnsec(gMrbfsConfig->cfgParms, "node", i);
 		const char* nodeName = cfg_title(cfgNode);
 		UINT8 bus = cfg_getint(cfgNode, "bus");
-		UINT8 address = cfg_getint(cfgNode, "address");
+		UINT8 address = strtol(cfg_getstr(cfgNode, "address"), NULL, 36);		
 		
 		mrbfsLogMessage(MRBFS_LOG_INFO, "Node [%s] - Starting setup at bus %d, address 0x%02X", nodeName, bus, address);
 
@@ -489,20 +450,53 @@ int mrbfsLoadNodes()
 			pthread_mutex_init(&node->nodeLock, &lockAttr);
 			pthread_mutexattr_destroy(&lockAttr);		
 		}
+		
 
+/* 
+typedef struct MRBFSBusNode
+{
+	void* nodeDriverHandle;
+	char* nodeName;
+  	pthread_mutex_t nodeLock;
+	UINT8 bus;
+	UINT8 address;
+	void* nodeLocalStorage;
+	char* path;
+	MRBFSFileNode* baseFileNode;
+
+		
+	// Function pointers from main to the node module
+	int (*mrbfsLogMessage)(mrbfsLogLevel, const char*, ...);
+	MRBFSNode* (*mrbfsGetNode)(UINT8);
+	MRBFSFileNode* (*mrbfsFilesystemAddFile)(const char* fileName, MRBFSFileNodeType fileType, const char* insertionPath);
+
+	// Function pointers from the node to main
+	int (*mrbfsNodeInit)(struct MRBFSBusNode*);
+	
+	int (*mrbfsNodeDestroy)(struct MRBFSBusNode*);
+	
+} MRBFSBusNode;
+*/
+
+		ret = asprintf(&modulePath, "0x%02X - %s", address, nodeName);
+		ret = asprintf(&fsPath, "/bus%d", bus);
+		
+		node->nodeName = strdup(nodeName);
 		node->bus = bus;
 		node->address = address;
 		node->nodeDriverHandle = nodeDriverHandle;
-	
-		ret = asprintf(&modulePath, "0x%02X - %s", address, nodeName);
-		ret = asprintf(&fsPath, "/bus%d", bus);
+		node->nodeLocalStorage = NULL;
+		ret = asprintf(&node->path, "%s/%s", fsPath, modulePath);
+		
+		node->mrbfsLogMessage = &mrbfsLogMessage;
+		node->mrbfsFilesystemAddFile = &mrbfsFilesystemAddFile;
+		node->mrbfsNodeInit = dlsym(nodeDriverHandle, "mrbfsNodeInit");
+		node->mrbfsNodeDestroy = dlsym(nodeDriverHandle, "mrbfsNodeDestroy");
+		node->baseFileNode = mrbfsFilesystemAddFile(modulePath, FNODE_DIR_NODE, fsPath);
 
 		pthread_mutex_lock(&gMrbfsConfig->bus[bus]->busLock);
 		gMrbfsConfig->bus[bus]->node[address] = node;
-		pthread_mutex_unlock(&gMrbfsConfig->bus[bus]->busLock);		
-
-		node->baseFileNode = mrbfsFilesystemAddFile(modulePath, FNODE_DIR_NODE, fsPath);
-
+		pthread_mutex_unlock(&gMrbfsConfig->bus[bus]->busLock);
 
 
 		

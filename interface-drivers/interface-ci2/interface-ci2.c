@@ -66,7 +66,7 @@ static int mrbfsCI2SerialOpen(const char* device, speed_t baudrate)
 
 
 
-void mrbfsInterfaceModuleRun(MRBFSInterfaceModule* mrbfsInterfaceModule)
+void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 {
 	UINT8 buffer[256];
 	UINT8 *bufptr;      // Current char in buffer 
@@ -74,16 +74,16 @@ void mrbfsInterfaceModuleRun(MRBFSInterfaceModule* mrbfsInterfaceModule)
    UINT8 incomingByte[2];
 	int fd = -1, nbytes=0;	
 
-	(*mrbfsInterfaceModule->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface module [%s] confirms startup", mrbfsInterfaceModule->interfaceName);
+	(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface driver [%s] confirms startup", mrbfsInterfaceDriver->interfaceName);
 
    memset(buffer, 0, sizeof(buffer));
    bufptr = buffer;
 
 	fd = mrbfsCI2SerialOpen("/dev/ttyS0", B115200);
-	(*mrbfsInterfaceModule->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface module [%s] opened serial on %d", mrbfsInterfaceModule->interfaceName, fd);
+	(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface driver [%s] opened serial on %d", mrbfsInterfaceDriver->interfaceName, fd);
 
 
-   while(!mrbfsInterfaceModule->terminate)
+   while(!mrbfsInterfaceDriver->terminate)
    {
       usleep(1000);
       while ((nbytes = read(fd, incomingByte, 1)) > 0)
@@ -118,7 +118,7 @@ void mrbfsInterfaceModuleRun(MRBFSInterfaceModule* mrbfsInterfaceModule)
       }
    }
    
-	(*mrbfsInterfaceModule->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface module [%s] terminating", mrbfsInterfaceModule->interfaceName);   
+	(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface driver [%s] terminating", mrbfsInterfaceDriver->interfaceName);   
 	phtread_exit(NULL);
 }
 
