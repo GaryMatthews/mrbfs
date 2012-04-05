@@ -20,6 +20,14 @@ static struct fuse_opt mrbfs_opts[] = {
      FUSE_OPT_END     
 };
 
+
+cfg_opt_t node_option_opts[] =
+{
+	CFG_STR("value", "", CFGF_NONE),
+	CFG_END()
+};
+
+
 cfg_opt_t interface_opts[] =
 {
 	CFG_INT("bus", 0, CFGF_NONE),
@@ -27,6 +35,7 @@ cfg_opt_t interface_opts[] =
 	CFG_STR("port", "/dev/ttyUSB0", CFGF_NONE),
 	CFG_INT("bridge", 0, CFGF_NONE),
 	CFG_STR("interface-address", "0xFE", CFGF_NONE),
+	CFG_SEC("option", node_option_opts, CFGF_MULTI | CFGF_TITLE),	
 	CFG_END()
 };
 
@@ -35,6 +44,7 @@ cfg_opt_t node_opts[] =
 	CFG_INT("bus", 0, CFGF_NONE),
 	CFG_STR("driver", 0, CFGF_NONE),
 	CFG_STR("address", 0, CFGF_NONE),
+	CFG_SEC("option", node_option_opts, CFGF_MULTI | CFGF_TITLE),	
 	CFG_END()
 };
 

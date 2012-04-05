@@ -37,17 +37,15 @@ typedef struct
 
 typedef struct
 {
-	UINT8 stuff; // This is a placeholder
-	
-} MRBFSNodeModule;
-
+	char* key;
+	char* value;
+} MRBFSModuleOption;
 
 typedef union
 {
 	char* valueStr;
 	int valueInt;
 	void* dirPtr;
-
 } MRBFSFileNodeValue;
 
 typedef enum
@@ -100,7 +98,8 @@ typedef struct MRBFSBusNode
 	void* nodeLocalStorage;
 	char* path;
 	MRBFSFileNode* baseFileNode;
-
+	int nodeOptions;
+	MRBFSModuleOption* nodeOptionList;
 		
 	// Function pointers from main to the node module
 	int (*mrbfsLogMessage)(mrbfsLogLevel, const char*, ...);
@@ -134,7 +133,10 @@ typedef struct MRBFSInterfaceDriver
 	UINT8 bus;
 	UINT8 addr;
 	UINT8 terminate;
-	
+
+	int interfaceOptions;
+	MRBFSModuleOption* interfaceOptionList;
+
 	// Function pointers from main to the module
 	int (*mrbfsLogMessage)(mrbfsLogLevel, const char*, ...);
 	void (*mrbfsPacketReceive)(MRBusPacket* rxPkt);

@@ -480,7 +480,24 @@ int mrbfsOpenInterfaces()
 		mrbfsInterfaceDriver->bus = cfg_getint(cfgInterface, "bus");
 		mrbfsInterfaceDriver->port = strdup(cfg_getstr(cfgInterface, "port"));
 		mrbfsInterfaceDriver->addr = strtol(cfg_getstr(cfgInterface, "interface-address"), NULL, 16);
-		
+	
+		mrbfsInterfaceDriver->interfaceOptions = cfg_size(cfgInterface, "option");
+		if (mrbfsInterfaceDriver->interfaceOptions > 0)
+		{
+			int interfaceOption=0;
+			mrbfsInterfaceDriver->interfaceOptionList = calloc(mrbfsInterfaceDriver->interfaceOptions, sizeof(MRBFSModuleOption));
+			for(interfaceOption=0; interfaceOption < mrbfsInterfaceDriver->interfaceOptions; interfaceOption++)
+			{
+				cfg_t *cfgInterfaceOption = cfg_getnsec(cfgInterface, "option", interfaceOption);
+				mrbfsInterfaceDriver->interfaceOptionList[i].key = strdup(cfg_title(cfgInterfaceOption));
+				mrbfsInterfaceDriver->interfaceOptionList[i].value = strdup(cfg_getstr(cfgInterfaceOption, "value"));
+			}	
+		}
+		else
+		{
+			mrbfsInterfaceDriver->interfaceOptions = 0;
+		}
+	
 		mrbfsInterfaceDriver->mrbfsInterfaceDriverRun = dlsym(interfaceDriverHandle, "mrbfsInterfaceDriverRun");
 		if(NULL == mrbfsInterfaceDriver->mrbfsInterfaceDriverRun)
 		{
@@ -526,7 +543,7 @@ void mrbfsPacketTransmit()
 int mrbfsLoadNodes()
 {
 	int nodes = cfg_size(gMrbfsConfig->cfgParms, "node");
-	int i=0, err=0;
+	int i=0, err=0, nodeOption=0;
 	
 	mrbfsLogMessage(MRBFS_LOG_INFO, "Starting configuration of nodes (%d)", nodes);
 
@@ -601,33 +618,7 @@ int mrbfsLoadNodes()
 			pthread_mutex_init(&node->nodeLock, &lockAttr);
 			pthread_mutexattr_destroy(&lockAttr);		
 		}
-		
 
-/* 
-typedef struct MRBFSBusNode
-{
-	void* nodeDriverHandle;
-	char* nodeName;
-  	pthread_mutex_t nodeLock;
-	UINT8 bus;
-	UINT8 address;
-	void* nodeLocalStorage;
-	char* path;
-	MRBFSFileNode* baseFileNode;
-
-		
-	// Function pointers from main to the node module
-	int (*mrbfsLogMessage)(mrbfsLogLevel, const char*, ...);
-	MRBFSNode* (*mrbfsGetNode)(UINT8);
-	MRBFSFileNode* (*mrbfsFilesystemAddFile)(const char* fileName, MRBFSFileNodeType fileType, const char* insertionPath);
-
-	// Function pointers from the node to main
-	int (*mrbfsNodeInit)(struct MRBFSBusNode*);
-	
-	int (*mrbfsNodeDestroy)(struct MRBFSBusNode*);
-	
-} MRBFSBusNode;
-*/
 
 		ret = asprintf(&modulePath, "0x%02X - %s", address, nodeName);
 		ret = asprintf(&fsPath, "/bus%d", bus);
@@ -645,6 +636,15 @@ typedef struct MRBFSBusNode
 		node->mrbfsNodeDestroy = dlsym(nodeDriverHandle, "mrbfsNodeDestroy");
 		node->mrbfsNodeRxPacket = dlsym(nodeDriverHandle, "mrbfsNodeRxPacket");
 		node->baseFileNode = mrbfsFilesystemAddFile(modulePath, FNODE_DIR_NODE, fsPath);
+
+		node->nodeOptions = cfg_size(cfgNode, "option");
+		node->nodeOptionList = calloc(node->nodeOptions, sizeof(MRBFSModuleOption));
+		for(nodeOption=0; nodeOption < node->nodeOptions; nodeOption++)
+		{
+			cfg_t *cfgNodeOption = cfg_getnsec(cfgNode, "option", nodeOption);
+			node->nodeOptionList[i].key = strdup(cfg_title(cfgNodeOption));
+			node->nodeOptionList[i].value = strdup(cfg_getstr(cfgNodeOption, "value"));
+		}
 
 		(*node->mrbfsNodeInit)(node);
 

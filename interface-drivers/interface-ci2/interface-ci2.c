@@ -26,34 +26,30 @@ static void mrbfsCI2SerialClose(int fd)
 {
 }
 
-static int mrbfsCI2SerialOpen(const char* device, speed_t baudrate, int (*mrbfsLogMessage)(mrbfsLogLevel, const char*, ...))
+static int mrbfsCI2SerialOpen(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 {
 	int fd, n;
 	struct termios options;
 	int  nbytes;       // Number of bytes read 
 	struct timeval timeout;
+	char* device = mrbfsInterfaceDriver->port;
 
-	(*mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Begin serial startup - opening [%s]", device);
+	(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface [%s] - Starting serial port setup on [%s]", mrbfsInterfaceDriver->interfaceName, device);
 
-//	fd = open(device, O_RDWR | O_NOCTTY | O_NDELAY | O_NONBLOCK); 
-	fd = open("/dev/ttyUSB0", O_RDWR | O_NOCTTY | O_NDELAY); 
+	fd = open(device, O_RDWR | O_NOCTTY | O_NDELAY); 
    if (fd < 0)
 	{
-		(*mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Oooh, fd is bad, %d", fd);
+		(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_ERROR, "Ser, %d", fd);
 		perror(device); 
 		return(0); 
 	}
-	(*mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Past opening serial port1");
 	fcntl(fd, F_SETFL, 0);
-
-
-	(*mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Past opening serial port2");
 	tcgetattr(fd,&options); // save current serial port settings 
 
+	(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Interface [%s] - Serial port [%s] opened, not yet configured", mrbfsInterfaceDriver->interfaceName, device);
 
-
-	cfsetispeed(&options, baudrate);
-	cfsetospeed(&options, baudrate);
+	cfsetispeed(&options, B115200);
+	cfsetospeed(&options, B115200);
 
    options.c_cflag &= ~CSIZE; // Mask the character size bits 
    options.c_cflag |= CS8;    // Select 8 data bits 
@@ -68,11 +64,10 @@ static int mrbfsCI2SerialOpen(const char* device, speed_t baudrate, int (*mrbfsL
    tcflush(fd, TCIFLUSH);
 	tcsetattr(fd, TCSAFLUSH, &options);
 
+	(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface [%s] - Serial startup complete", mrbfsInterfaceDriver->interfaceName);
+
 	return(fd);
-
 }
-
-
 
 void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 {
@@ -86,68 +81,12 @@ void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 
 	int fd = -1, nbytes=0, i=0;	
 
-	(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface driver [%s] confirms startup", mrbfsInterfaceDriver->interfaceName);
+	(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface [%s] confirms startup", mrbfsInterfaceDriver->interfaceName);
 
    memset(buffer, 0, sizeof(buffer));
    bufptr = buffer;
 
-	(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface driver [%s] alive", mrbfsInterfaceDriver->interfaceName);
-	if(0);
-	{
-
-		(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Begin serial startup - opening [%s]", device);
-
-		fd = open(device, O_RDWR | O_NOCTTY | O_NDELAY); 
-		if (fd < 0)
-		{
-			(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Oooh, fd is bad, %d", fd);
-			perror(device); 
-		}
-		(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Past opening serial port1");
-		fcntl(fd, F_SETFL, 0);
-
-
-		(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Past opening serial port2");
-		tcgetattr(fd,&options); // save current serial port settings 
-
-
-
-		cfsetispeed(&options, B115200);
-		cfsetospeed(&options, B115200);
-
-		options.c_cflag &= ~CSIZE; // Mask the character size bits 
-		options.c_cflag |= CS8;    // Select 8 data bits 
-
-		options.c_cflag &= ~CRTSCTS;
-		options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
-		options.c_iflag &= ~(IXON | IXOFF | IXANY);
-		options.c_oflag &= ~OPOST;
-		options.c_cc[VTIME] = 0;
-		options.c_cc[VMIN]   = 1;   // blocking read until 5 chars received
-		
-		tcflush(fd, TCIFLUSH);
-		tcsetattr(fd, TCSAFLUSH, &options);
-
-	}
-
-
-   while(1)
-   {
-      usleep(1000);
-		i++;
-		if (i>100)
-		{
-			i=0;
-			(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface driver [%s] alive", mrbfsInterfaceDriver->interfaceName);
-		}
-
-	}
-
-
-
-//	fd = mrbfsCI2SerialOpen("/dev/ttyUSB0", B115200, mrbfsInterfaceDriver->mrbfsLogMessage);
-	(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface driver [%s] opened serial on %d", mrbfsInterfaceDriver->interfaceName, fd);
-
+	fd = mrbfsCI2SerialOpen(mrbfsInterfaceDriver);
 
    while(!mrbfsInterfaceDriver->terminate)
    {
@@ -178,14 +117,8 @@ void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 							memcpy(hexByte, ptr, 2);
 							rxPkt.pkt[i] = strtol(hexByte, NULL, 16);
 						}
-						(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Interface driver [%s] got packet [%s]", mrbfsInterfaceDriver->interfaceName, buffer+2);
-
-
+						(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Interface [%s] got packet [%s]", mrbfsInterfaceDriver->interfaceName, buffer+2);
 						(*mrbfsInterfaceDriver->mrbfsPacketReceive)(&rxPkt);
-//                  memset(mrbfsGlobalData.pktData, 0, sizeof(mrbfsGlobalData.pktData));
- //                 strncpy(mrbfsGlobalData.pktData, buffer, sizeof(mrbfsGlobalData.pktData)-1);
- //                 mrbfsGlobalData.pktsReceived++;
-  //                mrbfsGlobalData.pktAvailable=1;
 
                }
 
