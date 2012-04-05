@@ -176,7 +176,7 @@ void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 							char hexByte[3];
 							hexByte[2] = 0;
 							memcpy(hexByte, ptr, 2);
-							rxPkt.pkt[i] = strtol(hexByte, NULL, 36);
+							rxPkt.pkt[i] = strtol(hexByte, NULL, 16);
 						}
 						(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Interface driver [%s] got packet [%s]", mrbfsInterfaceDriver->interfaceName, buffer+2);
 
