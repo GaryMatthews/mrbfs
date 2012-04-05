@@ -480,6 +480,8 @@ int mrbfsOpenInterfaces()
 		mrbfsInterfaceDriver->bus = cfg_getint(cfgInterface, "bus");
 		mrbfsInterfaceDriver->port = strdup(cfg_getstr(cfgInterface, "port"));
 		mrbfsInterfaceDriver->addr = strtol(cfg_getstr(cfgInterface, "interface-address"), NULL, 16);
+		mrbusInterfaceDriver->mrbfsInterfacePacketTransmit = dlsym(interfaceDriverHandle, "mrbfsInterfacePacketTransmit");
+		mrbusInterfaceDriver->mrbfsInterfaceDriverInit = dlsym(interfaceDriverHandle, "mrbfsInterfaceDriverInit");
 	
 		mrbfsInterfaceDriver->interfaceOptions = cfg_size(cfgInterface, "option");
 		if (mrbfsInterfaceDriver->interfaceOptions > 0)
@@ -497,6 +499,10 @@ int mrbfsOpenInterfaces()
 		{
 			mrbfsInterfaceDriver->interfaceOptions = 0;
 		}
+		
+		
+		if (NULL != mrbusInterfaceDriver->mrbfsInterfacePacketTransmit)
+			(*mrbusInterfaceDriver->mrbfsInterfacePacketTransmit)(mrbusInterfaceDriver);
 	
 		mrbfsInterfaceDriver->mrbfsInterfaceDriverRun = dlsym(interfaceDriverHandle, "mrbfsInterfaceDriverRun");
 		if(NULL == mrbfsInterfaceDriver->mrbfsInterfaceDriverRun)
@@ -506,10 +512,11 @@ int mrbfsOpenInterfaces()
 		}	
 	
 	
+		mrbusInterfaceDriver->mrbfsInterfacePacketTransmit
+	
 		mrbfsAddBus(mrbfsInterfaceDriver->bus);
 
 		// Hook up the callbacks for the driver to talk to the main thread
-		//MRBFSInterfaceDriver->mrbfsGetNode = &mrbfsGetNode;
 		mrbfsInterfaceDriver->mrbfsLogMessage = &mrbfsLogMessage;
 		mrbfsInterfaceDriver->mrbfsPacketReceive = &mrbfsPacketReceive;
 		gMrbfsConfig->mrbfsInterfaceDrivers[gMrbfsConfig->mrbfsUsedInterfaces++] = mrbfsInterfaceDriver;
@@ -536,8 +543,14 @@ int mrbfsOpenInterfaces()
 }
 
 
-void mrbfsPacketTransmit()
+void mrbfsPacketTransmit(MRBusPacket* txPkt)
 {
+	int i;
+	for(i=0; i<gMrbfsConfig->mrbfsUsedInterfaces; i++)
+	{
+		if (txPkt->bus == gMrbfsConfig->mrbfsUsedInterfaces[i]->bus
+	
+	}
 }
 
 int mrbfsLoadNodes()

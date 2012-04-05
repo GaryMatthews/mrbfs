@@ -142,8 +142,9 @@ typedef struct MRBFSInterfaceDriver
 	void (*mrbfsPacketReceive)(MRBusPacket* rxPkt);
 	
 	// Function pointers from the module to main
+	void (*mrbfsInterfaceDriverInit)(struct MRBFSInterfaceDriver* mrbfsInterfaceDriver);
 	void (*mrbfsInterfaceDriverRun)(struct MRBFSInterfaceDriver* mrbfsInterfaceDriver);
-	
+	void (*mrbfsInterfacePacketTransmit)(struct MRBFSInterfaceDriver* mrbfsInterfaceDriver, MRBusPacket* txPkt);
 	void* moduleLocalStorage;
 	
 } MRBFSInterfaceDriver;
