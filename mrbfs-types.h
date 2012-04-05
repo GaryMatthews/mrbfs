@@ -137,7 +137,7 @@ typedef struct MRBFSInterfaceDriver
 	
 	// Function pointers from main to the module
 	int (*mrbfsLogMessage)(mrbfsLogLevel, const char*, ...);
-	MRBFSNode* (*mrbfsGetNode)(UINT8);
+	void (*mrbfsPacketReceive)(MRBusPacket* rxPkt);
 	
 	// Function pointers from the module to main
 	void (*mrbfsInterfaceDriverRun)(struct MRBFSInterfaceDriver* mrbfsInterfaceDriver);
