@@ -130,6 +130,14 @@ void mrbfsSingleInitConfig()
 int main(int argc, char *argv[])
 {
 	struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
+   struct fuse *fuse;
+   struct fuse_chan *ch;
+   char *mountpoint;
+   int multithreaded;
+   int foreground;
+   int res;
+   struct stat st;   
+
 	
 	if (NULL == (gMrbfsConfig = calloc(1, sizeof(MRBFSConfig))))
 	{
@@ -161,16 +169,71 @@ int main(int argc, char *argv[])
 	// Log a startup message and get on with starting the filesystem
 	mrbfsLogMessage(MRBFS_LOG_ERROR, "MRBFS Startup");
 
+	res = fuse_parse_cmdline(&args, &mountpoint, &multithreaded, &foreground);
+	if (res == -1)
+		exit(1);   
+
+	res = stat(mountpoint, &st);
+	if (res == -1) 
+	{
+		perror(mountpoint);
+		exit(1);
+	}
+	ch = fuse_mount(mountpoint, &args);
+	if (!ch)
+		exit(1);
+
+	res = fcntl(fuse_chan_fd(ch), F_SETFD, FD_CLOEXEC);
+	if (res == -1)
+		perror("WARNING: failed to set FD_CLOEXEC on fuse device");
+
+	fuse = fuse_new(ch, &args, &mrbfsOperations, sizeof(struct fuse_operations), NULL);
+	if (fuse == NULL) 
+	{
+		fuse_unmount(mountpoint, ch);
+		exit(1);
+	}
+	mrbfsLogMessage(MRBFS_LOG_INFO, "Daemonizing");
+	res = fuse_daemonize(foreground);
+	if (res != -1)
+		res = fuse_set_signal_handlers(fuse_get_session(fuse));
+
+	if (res == -1) 
+	{
+		fuse_unmount(mountpoint, ch);
+		fuse_destroy(fuse);
+		exit(1);
+	}
+	
+	mrbfsLogMessage(MRBFS_LOG_INFO, "Starting MRBFS filesystem");
 	// Setup the initial filesystem
 	mrbfsFilesystemInitialize();
 
+	mrbfsLogMessage(MRBFS_LOG_INFO, "Starting MRBFS interfaces");
 	// Setup the interfaces
 	mrbfsOpenInterfaces();
 
+	mrbfsLogMessage(MRBFS_LOG_INFO, "Starting MRBFS known nodes");
 	// Setup nodes we know about
-	mrbfsLoadNodes();
+	mrbfsLoadNodes();	
+	
+	mrbfsLogMessage(MRBFS_LOG_INFO, "Starting MRBFS fuse main loop");
+	if (multithreaded)
+		res = fuse_loop_mt(fuse);
+	else
+		res = fuse_loop(fuse);
 
-	return fuse_main(args.argc, args.argv, &mrbfsOperations, mrbfs_opt_proc);
+	if (res == -1)
+		res = 1;   
+	else
+		res = 0;
+
+   fuse_remove_signal_handlers(fuse_get_session(fuse));
+   fuse_unmount(mountpoint, ch);
+   fuse_destroy(fuse);
+   free(mountpoint);  
+
+	return(res);
 }
 
 int fileExists(const char* filename)
