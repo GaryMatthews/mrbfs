@@ -480,8 +480,8 @@ int mrbfsOpenInterfaces()
 		mrbfsInterfaceDriver->bus = cfg_getint(cfgInterface, "bus");
 		mrbfsInterfaceDriver->port = strdup(cfg_getstr(cfgInterface, "port"));
 		mrbfsInterfaceDriver->addr = strtol(cfg_getstr(cfgInterface, "interface-address"), NULL, 16);
-		mrbusInterfaceDriver->mrbfsInterfacePacketTransmit = dlsym(interfaceDriverHandle, "mrbfsInterfacePacketTransmit");
-		mrbusInterfaceDriver->mrbfsInterfaceDriverInit = dlsym(interfaceDriverHandle, "mrbfsInterfaceDriverInit");
+		mrbfsInterfaceDriver->mrbfsInterfacePacketTransmit = dlsym(interfaceDriverHandle, "mrbfsInterfacePacketTransmit");
+		mrbfsInterfaceDriver->mrbfsInterfaceDriverInit = dlsym(interfaceDriverHandle, "mrbfsInterfaceDriverInit");
 	
 		mrbfsInterfaceDriver->interfaceOptions = cfg_size(cfgInterface, "option");
 		if (mrbfsInterfaceDriver->interfaceOptions > 0)
@@ -501,8 +501,8 @@ int mrbfsOpenInterfaces()
 		}
 		
 		
-		if (NULL != mrbusInterfaceDriver->mrbfsInterfacePacketTransmit)
-			(*mrbusInterfaceDriver->mrbfsInterfacePacketTransmit)(mrbusInterfaceDriver);
+		if (NULL != mrbfsInterfaceDriver->mrbfsInterfaceDriverInit)
+			(*mrbfsInterfaceDriver->mrbfsInterfaceDriverInit)(mrbfsInterfaceDriver);
 	
 		mrbfsInterfaceDriver->mrbfsInterfaceDriverRun = dlsym(interfaceDriverHandle, "mrbfsInterfaceDriverRun");
 		if(NULL == mrbfsInterfaceDriver->mrbfsInterfaceDriverRun)
@@ -510,9 +510,6 @@ int mrbfsOpenInterfaces()
 			mrbfsLogMessage(MRBFS_LOG_ERROR, "Interface [%s] - module doesn't have a runnable function", interfaceName);
 			continue;
 		}	
-	
-	
-		mrbusInterfaceDriver->mrbfsInterfacePacketTransmit
 	
 		mrbfsAddBus(mrbfsInterfaceDriver->bus);
 
@@ -548,7 +545,8 @@ void mrbfsPacketTransmit(MRBusPacket* txPkt)
 	int i;
 	for(i=0; i<gMrbfsConfig->mrbfsUsedInterfaces; i++)
 	{
-		if (txPkt->bus == gMrbfsConfig->mrbfsUsedInterfaces[i]->bus
+		if (txPkt->bus == gMrbfsConfig->mrbfsInterfaceDrivers[i]->bus)
+			return;  // FIXME - this actually should be transmit...
 	
 	}
 }
