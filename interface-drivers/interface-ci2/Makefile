@@ -6,7 +6,7 @@ CC		=       gcc
 INCLUDES        =       -I. -I../../ -I../../libconfuse/src/
 CFLAGS		=	-fPIC -shared -O2 $(INCLUDES)
 
-LDFLAGS         =       -luvsdk
+LDFLAGS         =
 BIN_TARGET	=	../../modules/interface-ci2.so
 
 MODULE_SRC      =       $(shell find ./ -name "*.c" -print)
