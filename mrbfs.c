@@ -479,7 +479,7 @@ int mrbfsOpenInterfaces()
 		mrbfsInterfaceDriver->interfaceName = strdup(interfaceName);
 		mrbfsInterfaceDriver->bus = cfg_getint(cfgInterface, "bus");
 		mrbfsInterfaceDriver->port = strdup(cfg_getstr(cfgInterface, "port"));
-		mrbfsInterfaceDriver->addr = strtol(cfg_getstr(cfgInterface, "interface-address"), NULL, 36);
+		mrbfsInterfaceDriver->addr = strtol(cfg_getstr(cfgInterface, "interface-address"), NULL, 16);
 		
 		mrbfsInterfaceDriver->mrbfsInterfaceDriverRun = dlsym(interfaceDriverHandle, "mrbfsInterfaceDriverRun");
 		if(NULL == mrbfsInterfaceDriver->mrbfsInterfaceDriverRun)
@@ -542,7 +542,7 @@ int mrbfsLoadNodes()
 		cfg_t *cfgNode = cfg_getnsec(gMrbfsConfig->cfgParms, "node", i);
 		const char* nodeName = cfg_title(cfgNode);
 		UINT8 bus = cfg_getint(cfgNode, "bus");
-		UINT8 address = strtol(cfg_getstr(cfgNode, "address"), NULL, 36);		
+		UINT8 address = strtol(cfg_getstr(cfgNode, "address"), NULL, 16);		
 		
 		mrbfsLogMessage(MRBFS_LOG_INFO, "Node [%s] - Starting setup at bus %d, address 0x%02X", nodeName, bus, address);
 

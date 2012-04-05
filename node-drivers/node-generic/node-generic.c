@@ -33,10 +33,10 @@ typedef struct
 
 int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 {
+	NodeLocalStorage* nodeLocalStorage = calloc(1, sizeof(NodeLocalStorage));
+	mrbfsNode->nodeLocalStorage = (void*)nodeLocalStorage;
+
 	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_INFO, "Node [%s] starting up", mrbfsNode->nodeName);
-	NodeLocalStorage* nodeLocalStorage = (NodeLocalStorage*)mrbfsNode->nodeLocalStorage;
-	
-	nodeLocalStorage = calloc(1, sizeof(NodeLocalStorage));
 	
 	nodeLocalStorage->pktsReceived = 0;
 	nodeLocalStorage->file_packetsReceived = (*mrbfsNode->mrbfsFilesystemAddFile)("packetsReceived", FNODE_RW_VALUE_INT, mrbfsNode->path);
@@ -64,8 +64,10 @@ int mrbfsNodeDestroy(MRBFSBusNode* mrbfsNode)
 int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 {
 	NodeLocalStorage* nodeLocalStorage = (NodeLocalStorage*)mrbfsNode->nodeLocalStorage;
+	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] received packet", mrbfsNode->nodeName);
 	pthread_mutex_lock(&mrbfsNode->nodeLock);
-	nodeLocalStorage->pktsReceived++;
+	nodeLocalStorage->file_packetsReceived->updateTime = time(NULL);
+	nodeLocalStorage->file_packetsReceived->value.valueInt = ++nodeLocalStorage->pktsReceived;
 	pthread_mutex_unlock(&mrbfsNode->nodeLock);
 	return(0);
 }

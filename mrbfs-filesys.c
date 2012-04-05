@@ -344,7 +344,44 @@ int mrbfsRead(const char *path, char *buf, size_t size, off_t offset, struct fus
 		mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsRead(%s) - path [%s] not valid", path);
 		return(-ENOENT);
 	}
+	
+	switch(fileNode->fileType)
+	{
+		case FNODE_DIR_NODE:
+		case FNODE_DIR:
+			return(-ENOENT);
 
+		case FNODE_RO_VALUE_INT:
+		case FNODE_RW_VALUE_INT:
+			{
+				char intval[32];
+				size_t len=0;
+				
+				memset(intval, 0, sizeof(intval));	
+				sprintf(intval, "%d\n", fileNode->value.valueInt);
+		
+				len = strlen(intval);
+				mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsRead(%s) - string[%s], len[%d], offset[%d], size[%d]", fileNode->fileName, intval, len, offset, size);
 
-	return size;
+				if (offset < len) 
+				{
+					if (offset + size > len)
+						size = len - offset;
+					memcpy(buf, intval + offset, size);
+				} else
+					size = 0;		
+			}
+			break;
+		case FNODE_RO_VALUE_STR:
+		case FNODE_RW_VALUE_STR:		
+			{
+				mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsRead(%s) - reading str, value [%s]", fileNode->fileName, fileNode->value.valueStr);		
+				size = 0;		
+			}
+			break;
+	}
+	
+	return(size);
 }
+
+
