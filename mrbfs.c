@@ -413,7 +413,7 @@ void mrbfsPacketReceive(MRBusPacket* rxPkt)
 	if (NULL != gMrbfsConfig->bus[rxPkt->bus]->node[srcAddr]->mrbfsNodeRxPacket)
 	{
 		int ret = (*gMrbfsConfig->bus[rxPkt->bus]->node[srcAddr]->mrbfsNodeRxPacket)(gMrbfsConfig->bus[rxPkt->bus]->node[srcAddr], rxPkt);
-		mrbfsLogMessage(MRBFS_LOG_DEBUG, "Received packet for [%d/%02X] and processed, ret=%d", rxPkt->bus, srcAddr, ret);
+		mrbfsLogMessage(MRBFS_LOG_DEBUG, "Received packet for [%d/0x%02X] and processed, ret=%d", rxPkt->bus, srcAddr, ret);
 	}
 }
 
@@ -653,8 +653,10 @@ int mrbfsLoadNodes()
 		for(nodeOption=0; nodeOption < node->nodeOptions; nodeOption++)
 		{
 			cfg_t *cfgNodeOption = cfg_getnsec(cfgNode, "option", nodeOption);
-			node->nodeOptionList[i].key = strdup(cfg_title(cfgNodeOption));
-			node->nodeOptionList[i].value = strdup(cfg_getstr(cfgNodeOption, "value"));
+			const char* ptr = cfg_title(cfgNodeOption);
+			node->nodeOptionList[nodeOption].key = strdup(ptr?:"");
+			ptr = cfg_getstr(cfgNodeOption, "value");
+			node->nodeOptionList[nodeOption].value = strdup(ptr?:"");
 		}
 
 		(*node->mrbfsNodeInit)(node);

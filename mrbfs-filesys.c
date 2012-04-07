@@ -186,7 +186,6 @@ MRBFSFileNode* mrbfsAddFileNode(const char* insertionPath, MRBFSFileNode* addNod
 			} 
 			else if (0 > strcmp(addNode->fileName, node->fileName))
 			{
-				mrbfsLogMessage(MRBFS_LOG_DEBUG, "Adding [%s] on front of chain for node [%s]", addNode->fileName, insertionNode->fileName);	
 				// Insert here on the front end - need to change parent child ptr
 				if (NULL == prevnode)
 				{
@@ -195,8 +194,8 @@ MRBFSFileNode* mrbfsAddFileNode(const char* insertionPath, MRBFSFileNode* addNod
 				}
 				else
 				{
-					mrbfsLogMessage(MRBFS_LOG_DEBUG, "Adding [%s] before node [%s]", addNode->fileName, prevnode->fileName);	
-					prevnode->childPtr = addNode;
+					mrbfsLogMessage(MRBFS_LOG_DEBUG, "Adding [%s] before node [%s] and after node [%s]", addNode->fileName, node->fileName, prevnode->fileName);	
+					prevnode->siblingPtr = addNode;
 				}
 				
 				addNode->childPtr = NULL;

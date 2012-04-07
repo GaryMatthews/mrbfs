@@ -11,6 +11,7 @@
 #define MRBUS_PKT_CRC_L 3
 #define MRBUS_PKT_CRC_H 4
 #define MRBUS_PKT_TYPE  5
+#define MRBUS_PKT_DATA  6
 
 #define MRBFS_VERSION "0.0.1"
 
@@ -100,12 +101,12 @@ typedef struct MRBFSBusNode
 	MRBFSFileNode* baseFileNode;
 	int nodeOptions;
 	MRBFSModuleOption* nodeOptionList;
-		
+	
+
 	// Function pointers from main to the node module
 	int (*mrbfsLogMessage)(mrbfsLogLevel, const char*, ...);
 	MRBFSNode* (*mrbfsGetNode)(UINT8);
 	MRBFSFileNode* (*mrbfsFilesystemAddFile)(const char* fileName, MRBFSFileNodeType fileType, const char* insertionPath);
-
 	int (*mrbfsNodeRxPacket)(struct MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt);
 
 	// Function pointers from the node to main

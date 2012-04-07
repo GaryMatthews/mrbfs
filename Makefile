@@ -25,7 +25,7 @@ build_drivers:
 	make -C interface-drivers/interface-ci2
 	make -C interface-drivers/interface-dummy
 	make -C node-drivers/node-generic
-	
+	make -C node-drivers/node-bd42
 	
 
 clean:
