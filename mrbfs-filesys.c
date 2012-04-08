@@ -266,14 +266,21 @@ int mrbfsGetattr(const char *path, struct stat *stbuf)
 			break;
 
 		case FNODE_RW_VALUE_STR:
-			stbuf->st_mode = S_IFREG | 0664;
+			if (NULL != fileNode->mrbfsFileNodeWrite)
+				stbuf->st_mode = S_IFREG | 0664;
+			else
+				stbuf->st_mode = S_IFREG | 0444;
 			stbuf->st_nlink = 1;
 			stbuf->st_size = strlen(fileNode->value.valueStr);
 			retval = 0;			
 			break;
 			
 		case FNODE_RW_VALUE_INT:
-			stbuf->st_mode = S_IFREG | 0664;
+			if (NULL != fileNode->mrbfsFileNodeWrite)
+				stbuf->st_mode = S_IFREG | 0664;
+			else
+				stbuf->st_mode = S_IFREG | 0444;
+
 			stbuf->st_nlink = 1;
 			stbuf->st_size = 1;
 			retval = 0;			
@@ -325,7 +332,8 @@ int mrbfsOpen(const char *path, struct fuse_file_info *fi)
 	}
 	mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsOpen(%s) found file", path);
 
-	if (fileNode->fileType != FNODE_RW_VALUE_STR && fileNode->fileType != FNODE_RW_VALUE_INT)
+	if ( ((fi->flags & (O_RDONLY|O_WRONLY|O_RDWR)) != O_RDONLY)
+		&& ( (fileNode->fileType != FNODE_RW_VALUE_STR && fileNode->fileType != FNODE_RW_VALUE_INT) || (NULL == fileNode->mrbfsFileNodeWrite)) )
 	{
 		mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsOpen(%s) rejected - not writable node", path);
 		return -EACCES;
@@ -374,8 +382,77 @@ int mrbfsRead(const char *path, char *buf, size_t size, off_t offset, struct fus
 		case FNODE_RO_VALUE_STR:
 		case FNODE_RW_VALUE_STR:		
 			{
+				size_t len=0;
+				
+				len = strlen(fileNode->value.valueStr);
+				mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsRead(%s) - string value, len[%d], offset[%d], size[%d]", fileNode->fileName, len, offset, size);
+
+				if (offset < len) 
+				{
+					if (offset + size > len)
+						size = len - offset;
+					memcpy(buf, fileNode->value.valueStr + offset, size);
+				} else
+					size = 0;		
+
+
+
 				mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsRead(%s) - reading str, value [%s]", fileNode->fileName, fileNode->value.valueStr);		
-				size = 0;		
+			}
+			break;
+
+		case FNODE_RO_VALUE_PACKET_LIST:
+		case FNODE_RW_VALUE_PACKET_LIST:
+			break;
+	}
+	
+	return(size);
+}
+
+int mrbfsTruncate(const char *path, off_t offset)
+{
+	MRBFSFileNode *parentNode, *fileNode = mrbfsTraversePath(path, gMrbfsConfig->rootNode, &parentNode);
+	if (NULL == fileNode)
+	{
+		mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsTruncate(%s) - path [%s] not valid", path);
+		return(-ENOENT);
+	}
+	
+	if ((fileNode->fileType == FNODE_RW_VALUE_STR || fileNode->fileType == FNODE_RW_VALUE_INT) && (NULL == fileNode->mrbfsFileNodeWrite))
+	{
+		mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsTruncate(%s) rejected - not writable node", path);
+		return -EACCES;
+	}
+
+	return 0;
+}
+
+int mrbfsWrite(const char *path, const char *buf, size_t size, off_t offset, struct fuse_file_info *fi)
+{
+	MRBFSFileNode *parentNode, *fileNode = mrbfsTraversePath(path, gMrbfsConfig->rootNode, &parentNode);
+	if (NULL == fileNode)
+	{
+		mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsWrite(%s) - path [%s] not valid", path);
+		return(-ENOENT);
+	}
+	
+	if ((fileNode->fileType != FNODE_RW_VALUE_STR && fileNode->fileType != FNODE_RW_VALUE_INT) || (NULL == fileNode->mrbfsFileNodeWrite))
+	{
+		mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsWrite(%s) rejected - not writable node", path);
+		return -EACCES;
+	}
+
+	switch(fileNode->fileType)
+	{
+		case FNODE_DIR_NODE:
+		case FNODE_DIR:
+			return(-ENOENT);
+
+		case FNODE_RW_VALUE_INT:
+		case FNODE_RW_VALUE_STR:		
+			{
+				fileNode->mrbfsFileNodeWrite(fileNode, buf, size);
+				mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsWrite(%s) - write string[%s], len[%d]", fileNode->fileName, buf, size);
 			}
 			break;
 	}

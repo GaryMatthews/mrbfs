@@ -42,6 +42,35 @@ typedef struct
 	char* value;
 } MRBFSModuleOption;
 
+typedef struct
+{
+	UINT8 bus;
+	UINT8 len;
+	UINT8 srcInterface;
+	UINT8 pkt[MRBFS_MAX_PACKET_LEN];
+} MRBusPacket;
+
+#define MRBUS_PACKET_QUEUE_SIZE  32
+
+typedef struct 
+{
+	pthread_mutex_t queueLock;
+	int headIdx;
+	int tailIdx;
+	MRBusPacket pkts[MRBUS_PACKET_QUEUE_SIZE];
+} MRBusPacketQueue;
+
+
+// Note: Must be a power of 2
+#define MRBFS_PACKET_LIST_SIZE 64
+
+typedef struct
+{
+	time_t pktTime[MRBFS_PACKET_LIST_SIZE];
+	MRBusPacket pkt[MRBFS_PACKET_LIST_SIZE];
+	int headPtr;
+} MRBFSFilePacketList;
+
 typedef union
 {
 	char* valueStr;
@@ -51,12 +80,14 @@ typedef union
 
 typedef enum
 {
-	FNODE_DIR,
-	FNODE_DIR_NODE,	
-	FNODE_RO_VALUE_STR,
-	FNODE_RO_VALUE_INT,
-	FNODE_RW_VALUE_STR,
-	FNODE_RW_VALUE_INT,	
+	FNODE_DIR             = 1,
+	FNODE_DIR_NODE        = 2,	
+	FNODE_RO_VALUE_STR    = 3,
+	FNODE_RO_VALUE_INT    = 4,
+	FNODE_RW_VALUE_STR    = 5,
+	FNODE_RW_VALUE_INT    = 6,
+	FNODE_RO_VALUE_PACKET_LIST = 7,
+	FNODE_RW_VALUE_PACKET_LIST = 8,
 	FNODE_END_OF_LIST
 } MRBFSFileNodeType;
 
@@ -67,27 +98,12 @@ typedef struct MRBFSFileNode
 	MRBFSFileNodeType fileType;
 	time_t updateTime;
 	time_t accessTime;
+	void (*mrbfsFileNodeWrite)(struct MRBFSFileNode*, const char* data, int dataSz);
+	void* nodeLocalStorage;
 	struct MRBFSFileNode* childPtr;
 	struct MRBFSFileNode* siblingPtr;
 } MRBFSFileNode;
 
-typedef struct
-{
-	UINT8 bus;
-	UINT8 len;
-	UINT8 srcInterface;
-	UINT8 pkt[MRBFS_MAX_PACKET_LEN];
-} MRBusPacket;
-
-#define MRBUS_PACKET_QUEUE_SIZE  256
-
-typedef struct 
-{
-	pthread_mutex_t queueLock;
-	int headIdx;
-	int tailIdx;
-	MRBusPacket pkts[MRBUS_PACKET_QUEUE_SIZE];
-} MRBusPacketQueue;
 
 typedef struct MRBFSBusNode
 {
@@ -107,11 +123,11 @@ typedef struct MRBFSBusNode
 	int (*mrbfsLogMessage)(mrbfsLogLevel, const char*, ...);
 	MRBFSNode* (*mrbfsGetNode)(UINT8);
 	MRBFSFileNode* (*mrbfsFilesystemAddFile)(const char* fileName, MRBFSFileNodeType fileType, const char* insertionPath);
-	int (*mrbfsNodeRxPacket)(struct MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt);
+	int (*mrbfsNodeTxPacket)(MRBusPacket* txPkt);
 
 	// Function pointers from the node to main
 	int (*mrbfsNodeInit)(struct MRBFSBusNode*);
-	
+	int (*mrbfsNodeRxPacket)(struct MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt);
 	int (*mrbfsNodeDestroy)(struct MRBFSBusNode*);
 	
 } MRBFSBusNode;
@@ -138,8 +154,14 @@ typedef struct MRBFSInterfaceDriver
 	int interfaceOptions;
 	MRBFSModuleOption* interfaceOptionList;
 
+	char* path;
+	MRBFSFileNode* baseFileNode;
+
+	void* nodeLocalStorage;
+
 	// Function pointers from main to the module
 	int (*mrbfsLogMessage)(mrbfsLogLevel, const char*, ...);
+	MRBFSFileNode* (*mrbfsFilesystemAddFile)(const char* fileName, MRBFSFileNodeType fileType, const char* insertionPath);
 	void (*mrbfsPacketReceive)(MRBusPacket* rxPkt);
 	
 	// Function pointers from the module to main

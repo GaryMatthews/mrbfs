@@ -66,6 +66,8 @@ static struct fuse_operations mrbfsOperations =
 	.readdir	= mrbfsReaddir,
 	.open		= mrbfsOpen,
 	.read		= mrbfsRead,
+	.write	= mrbfsWrite,
+	.truncate = mrbfsTruncate,
 	.init    = mrbfsInit,
 	.destroy = mrbfsDestroy,
 };
@@ -336,59 +338,7 @@ int mrbfsAddBus(UINT8 busNumber)
 	mrbfsLogMessage(MRBFS_LOG_DEBUG, "Master mutex lock released");	
 }
 
-void mrbusPacketQueueInitialize(MRBusPacketQueue* q)
-{
-	pthread_mutexattr_t lockAttr;
 
-	// Initialize the queue lock
-	pthread_mutexattr_init(&lockAttr);
-	pthread_mutexattr_settype(&lockAttr, PTHREAD_MUTEX_ADAPTIVE_NP);
-	pthread_mutex_init(&q->queueLock, &lockAttr);
-	pthread_mutexattr_destroy(&lockAttr);		
-
-	q->headIdx = q->tailIdx = 0;
-}
-
-
-int mrbusPacketQueueDepth(MRBusPacketQueue* q)
-{
-	int depth = 0;
-	
-	pthread_mutex_lock(&q->queueLock);
-	depth = (q->headIdx - q->tailIdx) % MRBUS_PACKET_QUEUE_SIZE; 
-	pthread_mutex_unlock(&q->queueLock);
-
-	return(depth);
-}
-
-void mrbusPacketQueuePush(MRBusPacketQueue* q, UINT8 bus, UINT8 len, UINT8 srcInterface, const UINT8* data)
-{
-	pthread_mutex_lock(&q->queueLock);
-	if (len > MRBFS_MAX_PACKET_LEN)
-		len = MRBFS_MAX_PACKET_LEN;
-
-	q->pkts[q->headIdx].bus = bus;
-	q->pkts[q->headIdx].len = len;
-	q->pkts[q->headIdx].srcInterface = srcInterface;
-	memset(q->pkts[q->headIdx].pkt, 0, MRBFS_MAX_PACKET_LEN);
-	memcpy(q->pkts[q->headIdx].pkt, data, len);
-	
-	if( ++q->headIdx >= MRBUS_PACKET_QUEUE_SIZE )
-		q->headIdx = 0;
-
-	pthread_mutex_unlock(&q->queueLock);
-}
-
-MRBusPacket mrbusPacketQueuePop(MRBusPacketQueue* q)
-{
-	MRBusPacket pkt;
-	memcpy(&pkt, &q->pkts[q->tailIdx], sizeof(MRBusPacket));
-
-	if( ++q->tailIdx >= MRBUS_PACKET_QUEUE_SIZE )
-		q->tailIdx = 0;
-
-	return(pkt);
-}
 
 // mrbfsPacketReceive is spun off by the interfaces as they receive data
 // thus is can be running multiple times in parallel
@@ -499,11 +449,16 @@ int mrbfsOpenInterfaces()
 		{
 			mrbfsInterfaceDriver->interfaceOptions = 0;
 		}
+
+		mrbfsLogMessage(MRBFS_LOG_DEBUG, "Interface [%s] - setting up filesystem directory", interfaceName);
+		ret = asprintf(&mrbfsInterfaceDriver->path, "/interfaces/%s", mrbfsInterfaceDriver->interfaceName);
+		mrbfsInterfaceDriver->baseFileNode = mrbfsFilesystemAddFile(mrbfsInterfaceDriver->interfaceName, FNODE_DIR_NODE, "/interfaces");
+
+		// Hook up the callbacks for the driver to talk to the main thread
+		mrbfsInterfaceDriver->mrbfsLogMessage = &mrbfsLogMessage;
+		mrbfsInterfaceDriver->mrbfsPacketReceive = &mrbfsPacketReceive;
+		mrbfsInterfaceDriver->mrbfsFilesystemAddFile = &mrbfsFilesystemAddFile;		
 		
-		
-		if (NULL != mrbfsInterfaceDriver->mrbfsInterfaceDriverInit)
-			(*mrbfsInterfaceDriver->mrbfsInterfaceDriverInit)(mrbfsInterfaceDriver);
-	
 		mrbfsInterfaceDriver->mrbfsInterfaceDriverRun = dlsym(interfaceDriverHandle, "mrbfsInterfaceDriverRun");
 		if(NULL == mrbfsInterfaceDriver->mrbfsInterfaceDriverRun)
 		{
@@ -513,12 +468,16 @@ int mrbfsOpenInterfaces()
 	
 		mrbfsAddBus(mrbfsInterfaceDriver->bus);
 
-		// Hook up the callbacks for the driver to talk to the main thread
-		mrbfsInterfaceDriver->mrbfsLogMessage = &mrbfsLogMessage;
-		mrbfsInterfaceDriver->mrbfsPacketReceive = &mrbfsPacketReceive;
 		gMrbfsConfig->mrbfsInterfaceDrivers[gMrbfsConfig->mrbfsUsedInterfaces++] = mrbfsInterfaceDriver;
 
 		mrbfsLogMessage(MRBFS_LOG_INFO, "Interface [%s] successfully set up in slot %d", mrbfsInterfaceDriver->interfaceName, gMrbfsConfig->mrbfsUsedInterfaces-1);
+
+		if (NULL != mrbfsInterfaceDriver->mrbfsInterfaceDriverInit)
+		{
+			mrbfsLogMessage(MRBFS_LOG_DEBUG, "Interface [%s] - running mrbfsInterfaceDriverInit function", interfaceName);
+			(*mrbfsInterfaceDriver->mrbfsInterfaceDriverInit)(mrbfsInterfaceDriver);
+		}
+
 
 		{
 			err = pthread_create(&mrbfsInterfaceDriver->interfaceThread, NULL, (void*)mrbfsInterfaceDriver->mrbfsInterfaceDriverRun, mrbfsInterfaceDriver);
@@ -540,15 +499,35 @@ int mrbfsOpenInterfaces()
 }
 
 
-void mrbfsPacketTransmit(MRBusPacket* txPkt)
+int mrbfsPacketTransmit(MRBusPacket* txPkt)
 {
 	int i;
+	char buffer[64];
+	memset(buffer, 0, sizeof(buffer));
+	mrbfsLogMessage(MRBFS_LOG_DEBUG, "Starting master transmit routine");
+
+
+	for(i=0; i<txPkt->pkt[MRBUS_PKT_LEN]; i++)
+		sprintf(buffer+3*i, "%02X ", txPkt->pkt[i]);
+	*(buffer+3*i-1) = ']';
+	mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsPacketTransmit starting - [%s", buffer);
+
 	for(i=0; i<gMrbfsConfig->mrbfsUsedInterfaces; i++)
 	{
-		if (txPkt->bus == gMrbfsConfig->mrbfsInterfaceDrivers[i]->bus)
-			return;  // FIXME - this actually should be transmit...
-	
+		if (NULL == gMrbfsConfig->mrbfsInterfaceDrivers[i]->mrbfsInterfacePacketTransmit)
+		{
+			mrbfsLogMessage(MRBFS_LOG_DEBUG, "Non-transmitting interface [%s], skipping", gMrbfsConfig->mrbfsInterfaceDrivers[i]->interfaceName);
+			continue;
+		}
+		else if (txPkt->bus == gMrbfsConfig->mrbfsInterfaceDrivers[i]->bus)
+		{
+			mrbfsLogMessage(MRBFS_LOG_DEBUG, "Transmit queueing pkt on Interface [%s], bus[%d]", gMrbfsConfig->mrbfsInterfaceDrivers[i]->interfaceName, txPkt->bus);
+			(*gMrbfsConfig->mrbfsInterfaceDrivers[i]->mrbfsInterfacePacketTransmit)(gMrbfsConfig->mrbfsInterfaceDrivers[i], txPkt);
+		}
+		else
+			mrbfsLogMessage(MRBFS_LOG_DEBUG, "Transmit skipping interface [%s], bus[%d]", gMrbfsConfig->mrbfsInterfaceDrivers[i]->interfaceName, txPkt->bus);
 	}
+	return(0);
 }
 
 int mrbfsLoadNodes()
@@ -643,6 +622,8 @@ int mrbfsLoadNodes()
 		
 		node->mrbfsLogMessage = &mrbfsLogMessage;
 		node->mrbfsFilesystemAddFile = &mrbfsFilesystemAddFile;
+		node->mrbfsNodeTxPacket = &mrbfsPacketTransmit;
+
 		node->mrbfsNodeInit = dlsym(nodeDriverHandle, "mrbfsNodeInit");
 		node->mrbfsNodeDestroy = dlsym(nodeDriverHandle, "mrbfsNodeDestroy");
 		node->mrbfsNodeRxPacket = dlsym(nodeDriverHandle, "mrbfsNodeRxPacket");

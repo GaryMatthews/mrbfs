@@ -24,13 +24,58 @@ int mrbfsNodeDriverVersionCheck(int ifaceVersion)
 	return(1);
 }
 
+// ~83 bytes per packet, and hold 25
+#define RX_PKT_BUFFER_SZ  (83 * 25)  
+
 typedef struct
 {
 	UINT32 pktsReceived;
 	UINT32 value;
 	MRBFSFileNode* file_occ[12];
-	MRBFSFileNode* file_packetsReceived;
+	MRBFSFileNode* file_rxCounter;
+	MRBFSFileNode* file_rxPackets;
+	MRBFSFileNode* file_mcwritey;
+	char rxPacketStr[RX_PKT_BUFFER_SZ];
 } NodeLocalStorage;
+
+void mrbfsFileNodeWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int dataSz)
+{
+	MRBFSBusNode* mrbfsNode = (MRBFSBusNode*)(mrbfsFileNode->nodeLocalStorage);
+	NodeLocalStorage* nodeLocalStorage = (NodeLocalStorage*)(mrbfsNode->nodeLocalStorage);
+
+	// Now, figure out where this thing goes...
+	if (mrbfsFileNode == nodeLocalStorage->file_rxCounter)
+	{
+		if (0 == atoi(data))
+		{
+			memset(nodeLocalStorage->rxPacketStr, 0, RX_PKT_BUFFER_SZ);
+			mrbfsFileNode->value.valueInt = nodeLocalStorage->pktsReceived = 0;
+		}
+	}
+	else if (mrbfsFileNode == nodeLocalStorage->file_mcwritey)
+	{
+		MRBusPacket* txPkt = NULL;
+		// Oh, we're going to write something to the bus, fun!
+		if (NULL == mrbfsNode->mrbfsNodeTxPacket)
+			(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_INFO, "Node [%s] can't transmit - no mrbfsNodeTxPacket function defined", mrbfsNode->nodeName);
+		else if (NULL == (txPkt = calloc(1, sizeof(MRBusPacket))))
+			(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_INFO, "Node [%s] can't transmit - failed txPkt allocation", mrbfsNode->nodeName);
+		else
+		{
+			(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_INFO, "Node [%s] sending packet (dest=0x%02X)", mrbfsNode->nodeName, mrbfsNode->address);
+			txPkt->bus = mrbfsNode->bus;
+			txPkt->pkt[MRBUS_PKT_SRC] = 0;  // A source of 0xFF will be replaced by the transmit drivers with the interface addresses
+			txPkt->pkt[MRBUS_PKT_DEST] = mrbfsNode->address;
+			txPkt->pkt[MRBUS_PKT_LEN] = 6;
+			txPkt->pkt[MRBUS_PKT_TYPE] = 'A';
+			(*mrbfsNode->mrbfsNodeTxPacket)(txPkt);
+			free(txPkt);
+		}
+	}
+
+
+}
+
 
 const char* mrbfsNodeOptionGet(MRBFSBusNode* mrbfsNode, const char* nodeOptionKey, const char* defaultValue)
 {
@@ -59,7 +104,18 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 	nodeOccupancyDetectorsConnected = atoi(mrbfsNodeOptionGet(mrbfsNode, "channels_connected", "4"));
 
 	nodeLocalStorage->pktsReceived = 0;
-	nodeLocalStorage->file_packetsReceived = (*mrbfsNode->mrbfsFilesystemAddFile)("packetsReceived", FNODE_RW_VALUE_INT, mrbfsNode->path);
+	nodeLocalStorage->file_rxCounter = (*mrbfsNode->mrbfsFilesystemAddFile)("rxCounter", FNODE_RW_VALUE_INT, mrbfsNode->path);
+	nodeLocalStorage->file_rxPackets = (*mrbfsNode->mrbfsFilesystemAddFile)("rxPackets", FNODE_RO_VALUE_STR, mrbfsNode->path);
+	nodeLocalStorage->file_mcwritey = (*mrbfsNode->mrbfsFilesystemAddFile)("mcwritey", FNODE_RW_VALUE_INT, mrbfsNode->path);
+
+
+	nodeLocalStorage->file_rxPackets->value.valueStr = nodeLocalStorage->rxPacketStr;
+	nodeLocalStorage->file_rxCounter->mrbfsFileNodeWrite = &mrbfsFileNodeWrite;
+	nodeLocalStorage->file_rxCounter->nodeLocalStorage = (void*)mrbfsNode;
+
+	nodeLocalStorage->file_mcwritey->mrbfsFileNodeWrite = &mrbfsFileNodeWrite;
+	nodeLocalStorage->file_mcwritey->nodeLocalStorage = (void*)mrbfsNode;
+
 
 	// Initialize the occupancy files
 	if (nodeOccupancyDetectorsConnected < 0 || nodeOccupancyDetectorsConnected > MRB_BD42_MAX_CHANNELS)
@@ -98,12 +154,27 @@ int mrbfsNodeDestroy(MRBFSBusNode* mrbfsNode)
 	return (0);
 }
 
+int trimNewlines(char* str, int trimval)
+{
+	int newlines=0;
+	while(0 != *str)
+	{
+		if ('\n' == *str)
+			newlines++;
+		if (newlines >= trimval)
+			*++str = 0;
+		else
+			++str;
+	}
+	return(newlines);
+}
 
 // This function may be called simultaneously by multiple packet receivers.  Make sure anything affecting
 // the node as a whole is interlocked with mutexes.
 int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 {
 	NodeLocalStorage* nodeLocalStorage = (NodeLocalStorage*)mrbfsNode->nodeLocalStorage;
+	time_t currentTime = time(NULL);
 	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] received packet", mrbfsNode->nodeName);
 
 	pthread_mutex_lock(&mrbfsNode->nodeLock);
@@ -125,14 +196,44 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 				if (NULL == nodeLocalStorage->file_occ[i])
 					continue;
 				nodeLocalStorage->file_occ[i]->value.valueInt = (occupancy & 1<<i)?1:0;
-				nodeLocalStorage->file_occ[i]->updateTime = time(NULL);
+				nodeLocalStorage->file_occ[i]->updateTime = currentTime;
 			}
 		}
 			break;			
 	}
 
-	nodeLocalStorage->file_packetsReceived->updateTime = time(NULL);
-	nodeLocalStorage->file_packetsReceived->value.valueInt = ++nodeLocalStorage->pktsReceived;
+	// Store the packet in the receive queue
+	{
+		char *newStart = nodeLocalStorage->rxPacketStr;
+		size_t rxPacketLen = strlen(nodeLocalStorage->rxPacketStr), newLen=rxPacketLen, newRemaining=2000-rxPacketLen;
+		char timeString[64];
+		char newPacket[100];
+		int b;
+		size_t timeSize=0;
+		struct tm pktTimeTM;
+
+		localtime_r(&currentTime, &pktTimeTM);
+		memset(newPacket, 0, sizeof(newPacket));
+		strftime(newPacket, sizeof(newPacket), "[%Y%m%d %H%M%S] ", &pktTimeTM);
+	
+		for(b=0; b<rxPkt->len; b++)
+			sprintf(newPacket + 18 + b*3, "%02X ", rxPkt->pkt[b]);
+		*(newPacket + 18 + b*3-1) = '\n';
+		*(newPacket + 18 + b*3) = 0;
+		newLen = 18 + b*3;
+
+		// Trim rear of existing string
+		trimNewlines(nodeLocalStorage->rxPacketStr, 24);
+
+		memmove(nodeLocalStorage->rxPacketStr + newLen, nodeLocalStorage->rxPacketStr, strlen(nodeLocalStorage->rxPacketStr));
+		memcpy(nodeLocalStorage->rxPacketStr, newPacket, newLen);
+
+		nodeLocalStorage->file_rxPackets->updateTime = currentTime;
+	}
+
+	// Update the number of packets received
+	nodeLocalStorage->file_rxCounter->updateTime = currentTime;
+	nodeLocalStorage->file_rxCounter->value.valueInt = ++nodeLocalStorage->pktsReceived;
 	pthread_mutex_unlock(&mrbfsNode->nodeLock);
 	return(0);
 }
