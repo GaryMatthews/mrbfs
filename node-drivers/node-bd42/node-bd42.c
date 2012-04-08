@@ -13,6 +13,7 @@
 #include <pthread.h>
 #include <unistd.h>
 #include "mrbfs-module.h"
+#include "mrbfs-pktqueue.h"
 
 #define MRBFS_NODE_DRIVER_NAME   "node-bd42"
 #define MRB_BD42_MAX_CHANNELS  12
@@ -34,8 +35,11 @@ typedef struct
 	MRBFSFileNode* file_occ[12];
 	MRBFSFileNode* file_rxCounter;
 	MRBFSFileNode* file_rxPackets;
+	MRBFSFileNode* file_eepromNodeAddr;
 	MRBFSFileNode* file_mcwritey;
 	char rxPacketStr[RX_PKT_BUFFER_SZ];
+	UINT8 requestRXFeed;
+	MRBusPacketQueue rxq;
 } NodeLocalStorage;
 
 void mrbfsFileNodeWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int dataSz)
@@ -72,9 +76,85 @@ void mrbfsFileNodeWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int data
 			free(txPkt);
 		}
 	}
-
-
 }
+
+// The mrbfsFileNodeRead function is called for files that identify themselves as "readback", meaning
+// that it's more than just a simple variable access to get their value
+// It must return the size of things written to the buffer, or 0 otherwise
+
+size_t mrbfsFileNodeRead(MRBFSFileNode* mrbfsFileNode, char *buf, size_t size, off_t offset)
+{
+	MRBFSBusNode* mrbfsNode = (MRBFSBusNode*)(mrbfsFileNode->nodeLocalStorage);
+	NodeLocalStorage* nodeLocalStorage = (NodeLocalStorage*)(mrbfsNode->nodeLocalStorage);
+	MRBusPacket pkt;
+	int timeout = 0;
+	int foundResponse = 0;
+	char responseBuffer[256] = "";
+	size_t len=0;
+
+	if (mrbfsFileNode == nodeLocalStorage->file_eepromNodeAddr)
+	{
+		MRBusPacket* txPkt = NULL;
+
+		// Oh, we're going to write something to the bus, fun!
+		if (NULL == mrbfsNode->mrbfsNodeTxPacket)
+			(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_INFO, "Node [%s] can't transmit - no mrbfsNodeTxPacket function defined", mrbfsNode->nodeName);
+		else if (NULL == (txPkt = calloc(1, sizeof(MRBusPacket))))
+			(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_INFO, "Node [%s] can't transmit - failed txPkt allocation", mrbfsNode->nodeName);
+		else
+		{
+			(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_INFO, "Node [%s] sending packet (dest=0x%02X)", mrbfsNode->nodeName, mrbfsNode->address);
+			txPkt->bus = mrbfsNode->bus;
+			txPkt->pkt[MRBUS_PKT_SRC] = 0;  // A source of 0xFF will be replaced by the transmit drivers with the interface addresses
+			txPkt->pkt[MRBUS_PKT_DEST] = mrbfsNode->address;
+			txPkt->pkt[MRBUS_PKT_LEN] = 7;
+			txPkt->pkt[MRBUS_PKT_TYPE] = 'R';
+			txPkt->pkt[MRBUS_PKT_DATA] = 0;
+			// Spin on requestRXFeed - we need to make sure we're the only one listening
+			while(nodeLocalStorage->requestRXFeed);
+			nodeLocalStorage->requestRXFeed = 1;
+			mrbusPacketQueueInitialize(&nodeLocalStorage->rxq);
+
+			(*mrbfsNode->mrbfsNodeTxPacket)(txPkt);
+			free(txPkt);
+			for(timeout=0; !foundResponse && timeout<1000; timeout++)
+			{
+				while(!foundResponse && mrbusPacketQueueDepth(&nodeLocalStorage->rxq))
+				{
+					memset(&pkt, 0, sizeof(MRBusPacket));
+					mrbusPacketQueuePop(&nodeLocalStorage->rxq, &pkt);
+					(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Readback [%s] saw pkt [%02X->%02X] ['%c']", mrbfsNode->nodeName, pkt.pkt[MRBUS_PKT_SRC], pkt.pkt[MRBUS_PKT_DEST], pkt.pkt[MRBUS_PKT_TYPE]);
+
+					if (pkt.pkt[MRBUS_PKT_SRC] == mrbfsNode->address && pkt.pkt[MRBUS_PKT_TYPE] == 'r')
+						foundResponse = 1;
+				}
+				usleep(1000);
+			}
+			nodeLocalStorage->requestRXFeed = 0;
+			if(!foundResponse)
+			{
+				(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_WARNING, "Node [%s], no response to EEPROM read request", mrbfsNode->nodeName);
+				size = 0;
+				return(size);
+			}
+			sprintf(responseBuffer, "0x%02X\n", pkt.pkt[MRBUS_PKT_DATA]);
+		}
+	}
+	
+	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] responding to readback on [%s] with [%s]", mrbfsNode->nodeName, mrbfsFileNode->fileName, responseBuffer);
+
+	len = strlen(responseBuffer);
+	if (offset < len) 
+	{
+		if (offset + size > len)
+			size = len - offset;
+		memcpy(buf, responseBuffer + offset, size);
+	} else
+		size = 0;		
+
+	return(size);
+}
+
 
 
 const char* mrbfsNodeOptionGet(MRBFSBusNode* mrbfsNode, const char* nodeOptionKey, const char* defaultValue)
@@ -107,7 +187,7 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 	nodeLocalStorage->file_rxCounter = (*mrbfsNode->mrbfsFilesystemAddFile)("rxCounter", FNODE_RW_VALUE_INT, mrbfsNode->path);
 	nodeLocalStorage->file_rxPackets = (*mrbfsNode->mrbfsFilesystemAddFile)("rxPackets", FNODE_RO_VALUE_STR, mrbfsNode->path);
 	nodeLocalStorage->file_mcwritey = (*mrbfsNode->mrbfsFilesystemAddFile)("mcwritey", FNODE_RW_VALUE_INT, mrbfsNode->path);
-
+	nodeLocalStorage->file_eepromNodeAddr = (*mrbfsNode->mrbfsFilesystemAddFile)("eepromNodeAddr", FNODE_RO_VALUE_READBACK, mrbfsNode->path);
 
 	nodeLocalStorage->file_rxPackets->value.valueStr = nodeLocalStorage->rxPacketStr;
 	nodeLocalStorage->file_rxCounter->mrbfsFileNodeWrite = &mrbfsFileNodeWrite;
@@ -116,6 +196,9 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 	nodeLocalStorage->file_mcwritey->mrbfsFileNodeWrite = &mrbfsFileNodeWrite;
 	nodeLocalStorage->file_mcwritey->nodeLocalStorage = (void*)mrbfsNode;
 
+	nodeLocalStorage->file_eepromNodeAddr->mrbfsFileNodeWrite = &mrbfsFileNodeWrite;
+	nodeLocalStorage->file_eepromNodeAddr->mrbfsFileNodeRead = &mrbfsFileNodeRead;
+	nodeLocalStorage->file_eepromNodeAddr->nodeLocalStorage = (void*)mrbfsNode;
 
 	// Initialize the occupancy files
 	if (nodeOccupancyDetectorsConnected < 0 || nodeOccupancyDetectorsConnected > MRB_BD42_MAX_CHANNELS)
@@ -201,6 +284,10 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 		}
 			break;			
 	}
+
+
+	if (nodeLocalStorage->requestRXFeed)
+		mrbusPacketQueuePush(&nodeLocalStorage->rxq, rxPkt, 0);
 
 	// Store the packet in the receive queue
 	{

@@ -285,6 +285,18 @@ int mrbfsGetattr(const char *path, struct stat *stbuf)
 			stbuf->st_size = 1;
 			retval = 0;			
 			break;
+
+		case FNODE_RO_VALUE_READBACK:
+		case FNODE_RW_VALUE_READBACK:
+			if (NULL != fileNode->mrbfsFileNodeWrite)
+				stbuf->st_mode = S_IFREG | 0220;
+			if (NULL != fileNode->mrbfsFileNodeRead)
+				stbuf->st_mode = S_IFREG | 0444;
+
+			stbuf->st_nlink = 1;
+			stbuf->st_size = 1;
+			retval = 0;			
+			break;
 					
 		case FNODE_END_OF_LIST:
 			return(retval);
@@ -401,8 +413,12 @@ int mrbfsRead(const char *path, char *buf, size_t size, off_t offset, struct fus
 			}
 			break;
 
-		case FNODE_RO_VALUE_PACKET_LIST:
-		case FNODE_RW_VALUE_PACKET_LIST:
+		case FNODE_RO_VALUE_READBACK:
+		case FNODE_RW_VALUE_READBACK:
+			if (NULL == fileNode->mrbfsFileNodeRead)
+				return(-ENOENT);
+			mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsRead(%s) - readback function called", fileNode->fileName);
+			size = (*fileNode->mrbfsFileNodeRead)(fileNode, buf, size, offset);
 			break;
 	}
 	
@@ -418,7 +434,7 @@ int mrbfsTruncate(const char *path, off_t offset)
 		return(-ENOENT);
 	}
 	
-	if ((fileNode->fileType == FNODE_RW_VALUE_STR || fileNode->fileType == FNODE_RW_VALUE_INT) && (NULL == fileNode->mrbfsFileNodeWrite))
+	if (!(fileNode->fileType == FNODE_RW_VALUE_STR || fileNode->fileType == FNODE_RW_VALUE_INT || fileNode->fileType == FNODE_RW_VALUE_READBACK) || (NULL == fileNode->mrbfsFileNodeWrite))
 	{
 		mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsTruncate(%s) rejected - not writable node", path);
 		return -EACCES;
@@ -436,7 +452,7 @@ int mrbfsWrite(const char *path, const char *buf, size_t size, off_t offset, str
 		return(-ENOENT);
 	}
 	
-	if ((fileNode->fileType != FNODE_RW_VALUE_STR && fileNode->fileType != FNODE_RW_VALUE_INT) || (NULL == fileNode->mrbfsFileNodeWrite))
+	if (!(fileNode->fileType == FNODE_RW_VALUE_STR || fileNode->fileType == FNODE_RW_VALUE_INT || fileNode->fileType == FNODE_RW_VALUE_READBACK) || (NULL == fileNode->mrbfsFileNodeWrite))
 	{
 		mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsWrite(%s) rejected - not writable node", path);
 		return -EACCES;
@@ -449,7 +465,8 @@ int mrbfsWrite(const char *path, const char *buf, size_t size, off_t offset, str
 			return(-ENOENT);
 
 		case FNODE_RW_VALUE_INT:
-		case FNODE_RW_VALUE_STR:		
+		case FNODE_RW_VALUE_STR:
+		case FNODE_RW_VALUE_READBACK:	
 			{
 				fileNode->mrbfsFileNodeWrite(fileNode, buf, size);
 				mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsWrite(%s) - write string[%s], len[%d]", fileNode->fileName, buf, size);

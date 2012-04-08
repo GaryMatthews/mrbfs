@@ -80,14 +80,14 @@ typedef union
 
 typedef enum
 {
-	FNODE_DIR             = 1,
-	FNODE_DIR_NODE        = 2,	
-	FNODE_RO_VALUE_STR    = 3,
-	FNODE_RO_VALUE_INT    = 4,
-	FNODE_RW_VALUE_STR    = 5,
-	FNODE_RW_VALUE_INT    = 6,
-	FNODE_RO_VALUE_PACKET_LIST = 7,
-	FNODE_RW_VALUE_PACKET_LIST = 8,
+	FNODE_DIR               = 1,
+	FNODE_DIR_NODE          = 2,	
+	FNODE_RO_VALUE_STR      = 3,
+	FNODE_RO_VALUE_INT      = 4,
+	FNODE_RW_VALUE_STR      = 5,
+	FNODE_RW_VALUE_INT      = 6,
+	FNODE_RO_VALUE_READBACK = 7,
+	FNODE_RW_VALUE_READBACK = 8,
 	FNODE_END_OF_LIST
 } MRBFSFileNodeType;
 
@@ -99,6 +99,7 @@ typedef struct MRBFSFileNode
 	time_t updateTime;
 	time_t accessTime;
 	void (*mrbfsFileNodeWrite)(struct MRBFSFileNode*, const char* data, int dataSz);
+	size_t (*mrbfsFileNodeRead)(struct MRBFSFileNode* mrbfsFileNode, char *buf, size_t size, off_t offset);
 	void* nodeLocalStorage;
 	struct MRBFSFileNode* childPtr;
 	struct MRBFSFileNode* siblingPtr;

@@ -9,7 +9,7 @@ CFLAGS		=	-fPIC -shared -O2 $(INCLUDES)
 LDFLAGS         =
 BIN_TARGET	=	../../modules/node-bd42.so
 
-MODULE_SRC      =       $(shell find ./ -name "*.c" -print)
+MODULE_SRC      =       $(shell find ./ -name "*.c" -print) ../../mrbfs-pktqueue.c
 MODULE_OBJ      =       $(MODULE_SRC:%.c=%.o)
 
 ### bd42 targets
