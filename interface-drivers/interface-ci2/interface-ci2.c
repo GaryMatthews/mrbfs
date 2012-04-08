@@ -103,7 +103,7 @@ static int mrbfsCI2SerialOpen(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 		perror(device); 
 		return(0); 
 	}
-	fcntl(fd, F_SETFL, 0);
+	fcntl(fd, F_SETFL, O_NONBLOCK);
 	tcgetattr(fd,&options); // save current serial port settings 
 
 	(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Interface [%s] - Serial port [%s] opened, not yet configured", mrbfsInterfaceDriver->interfaceName, device);
@@ -266,21 +266,21 @@ void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
                *bufptr++ = incomingByte[0];
                break;
          }
-			if (!processingPacket && mrbusPacketQueueDepth(&nodeLocalStorage->txq) )
-			{
-				MRBusPacket txPkt;
-				UINT8 txPktBuffer[32];
-				UINT8 txPktBufferLen=0;
-				mrbusPacketQueuePop(&nodeLocalStorage->txq, &txPkt);
-				sprintf(txPktBuffer, ":%02X->%02X %02X", txPkt.pkt[MRBUS_PKT_SRC], txPkt.pkt[MRBUS_PKT_DEST], txPkt.pkt[MRBUS_PKT_TYPE]);
-				for (i=MRBUS_PKT_DATA; i<txPkt.pkt[MRBUS_PKT_LEN]; i++)
-					sprintf(txPktBuffer + strlen(txPktBuffer), " %02X", txPkt.pkt[i]);
-				sprintf(txPktBuffer + strlen(txPktBuffer), ";\x0D");
-				(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface driver [%s] transmitting %d bytes", mrbfsInterfaceDriver->interfaceName, strlen(txPktBuffer)); 
-				write(fd, txPktBuffer, strlen(txPktBuffer));
-			}
-
       }
+		if (!processingPacket && mrbusPacketQueueDepth(&nodeLocalStorage->txq) )
+		{
+			MRBusPacket txPkt;
+			UINT8 txPktBuffer[32];
+			UINT8 txPktBufferLen=0;
+			mrbusPacketQueuePop(&nodeLocalStorage->txq, &txPkt);
+			sprintf(txPktBuffer, ":%02X->%02X %02X", txPkt.pkt[MRBUS_PKT_SRC], txPkt.pkt[MRBUS_PKT_DEST], txPkt.pkt[MRBUS_PKT_TYPE]);
+			for (i=MRBUS_PKT_DATA; i<txPkt.pkt[MRBUS_PKT_LEN]; i++)
+				sprintf(txPktBuffer + strlen(txPktBuffer), " %02X", txPkt.pkt[i]);
+			sprintf(txPktBuffer + strlen(txPktBuffer), ";\x0D");
+			(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface driver [%s] transmitting %d bytes", mrbfsInterfaceDriver->interfaceName, strlen(txPktBuffer)); 
+			write(fd, txPktBuffer, strlen(txPktBuffer));
+		}
+
    }
    
 	(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface driver [%s] terminating", mrbfsInterfaceDriver->interfaceName);   
