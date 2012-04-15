@@ -311,6 +311,9 @@ int trimNewlines(char* str, int trimval)
 
 // This function may be called simultaneously by multiple packet receivers.  Make sure anything affecting
 // the node as a whole is interlocked with mutexes.
+
+
+
 int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 {
 	NodeLocalStorage* nodeLocalStorage = (NodeLocalStorage*)mrbfsNode->nodeLocalStorage;

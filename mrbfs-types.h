@@ -94,6 +94,7 @@ typedef enum
 typedef struct MRBFSFileNode
 {
 	char* fileName;
+	pthread_mutex_t fileLock;
 	MRBFSFileNodeValue value;
 	MRBFSFileNodeType fileType;
 	time_t updateTime;
