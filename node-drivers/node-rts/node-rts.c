@@ -44,9 +44,13 @@ typedef struct
 	MRBFSFileNode* tempSensorFiles[5];
 	MrbRtsTemperatureUnits units;
 	char* tempSensorValues[5];
+	MRBFSFileNode* file_busVoltage;
+	char* busVoltageValue;
 	MRBFSFileNode* file_rxCounter;
 	MRBFSFileNode* file_rxPackets;
 	MRBFSFileNode* file_eepromNodeAddr;
+	UINT8 suppressUnits;
+	UINT8 decimalPositions;
 	char rxPacketStr[RX_PKT_BUFFER_SZ];
 	UINT8 requestRXFeed;
 	MRBusPacketQueue rxq;
@@ -207,6 +211,12 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 	nodeLocalStorage->file_eepromNodeAddr->mrbfsFileNodeRead = &mrbfsFileNodeRead;
 	nodeLocalStorage->file_eepromNodeAddr->nodeLocalStorage = (void*)mrbfsNode;
 
+	nodeLocalStorage->suppressUnits = 0;
+	if (0 == strcmp(mrbfsNodeOptionGet(mrbfsNode, "suppress_units", "no"), "yes"))
+		nodeLocalStorage->suppressUnits = 1;
+
+	nodeLocalStorage->decimalPositions = atoi(mrbfsNodeOptionGet(mrbfsNode, "decimal_positions", "2"));
+
 	unitsStr = mrbfsNodeOptionGet(mrbfsNode, "temperature_units", "celsius");
 	if (0 == strcmp("celsius", unitsStr))
 		nodeLocalStorage->units = MRB_RTS_UNITS_C;
@@ -219,7 +229,10 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 	else
 		nodeLocalStorage->units = MRB_RTS_UNITS_C;
 
-
+	nodeLocalStorage->file_busVoltage = (*mrbfsNode->mrbfsFilesystemAddFile)("mrbus_voltage", FNODE_RO_VALUE_STR, mrbfsNode->path);
+	nodeLocalStorage->busVoltageValue = calloc(1, TEMPERATURE_VALUE_BUFFER_SZ);
+	strcpy(nodeLocalStorage->busVoltageValue, "No Data\n");
+	nodeLocalStorage->file_busVoltage->value.valueStr = nodeLocalStorage->busVoltageValue;
 
 	for(i=0; i<5; i++)
 	{
@@ -293,13 +306,19 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 	{
 		case 'S':
 		{
+			double busVoltage = 0;
 			int i=0;
+			
+			busVoltage = ((double)rxPkt->pkt[17])/10.0;
+			snprintf(nodeLocalStorage->busVoltageValue, TEMPERATURE_VALUE_BUFFER_SZ-1, "%.*f", nodeLocalStorage->decimalPositions, busVoltage, nodeLocalStorage->suppressUnits?"":" V\n" );
+			
 			for(i=0; i<5; i++)
 			{
 				int shorted=0;
 				int open=0;
 				unsigned char flags = rxPkt->pkt[6];
 				int temperatureK = 0;
+
 				switch(i)
 				{
 					case 0:
@@ -329,7 +348,7 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 						break;
 				
 				}
-				
+
 				memset(nodeLocalStorage->tempSensorValues[i], 0, TEMPERATURE_VALUE_BUFFER_SZ);
 				if (open)
 					sprintf(nodeLocalStorage->tempSensorValues[i], "Open Circuit\n");
@@ -344,25 +363,25 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 					switch(nodeLocalStorage->units)
 					{
 						case MRB_RTS_UNITS_K:
-							snprintf(nodeLocalStorage->tempSensorValues[i], TEMPERATURE_VALUE_BUFFER_SZ-1, "%.2f K\n", temperature );
+							snprintf(nodeLocalStorage->tempSensorValues[i], TEMPERATURE_VALUE_BUFFER_SZ-1, "%.*f%s", nodeLocalStorage->decimalPositions, temperature, nodeLocalStorage->suppressUnits?"":" K\n");
 							break;
 
 						case MRB_RTS_UNITS_R:
 							temperature = (temperature * 9.0) / 5.0;
-							snprintf(nodeLocalStorage->tempSensorValues[i], TEMPERATURE_VALUE_BUFFER_SZ-1, "%.2f R\n", temperature );
+							snprintf(nodeLocalStorage->tempSensorValues[i], TEMPERATURE_VALUE_BUFFER_SZ-1, "%.*f%s", nodeLocalStorage->decimalPositions, temperature, nodeLocalStorage->suppressUnits?"":" R\n" );
 							break;
 
 						case MRB_RTS_UNITS_F:
 							temperature -= 273.15; // Convert to C, then to F
 							temperature = (temperature * 9.0) / 5.0;
 							temperature += 32.0;
-							snprintf(nodeLocalStorage->tempSensorValues[i], TEMPERATURE_VALUE_BUFFER_SZ-1, "%.2f F\n", temperature );
+							snprintf(nodeLocalStorage->tempSensorValues[i], TEMPERATURE_VALUE_BUFFER_SZ-1, "%.*f", nodeLocalStorage->decimalPositions, temperature, nodeLocalStorage->suppressUnits?"":" F\n" );
 							break;
 
 						default:
 						case MRB_RTS_UNITS_C:
 							temperature -= 273.15; // Convert to C
-							snprintf(nodeLocalStorage->tempSensorValues[i], TEMPERATURE_VALUE_BUFFER_SZ-1, "%.2f C\n", temperature );
+							snprintf(nodeLocalStorage->tempSensorValues[i], TEMPERATURE_VALUE_BUFFER_SZ-1, "%.*f", nodeLocalStorage->decimalPositions, temperature, nodeLocalStorage->suppressUnits?"":" C\n" );
 							break;
 					}
 				
