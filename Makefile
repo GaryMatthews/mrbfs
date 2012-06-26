@@ -1,7 +1,8 @@
 LD=ar
 LDFLAGS=r
 CC=gcc
-CFLAGS=-I./include/ -I/usr/include/fuse -I./libconfuse/src/ -O2 -D_FILE_OFFSET_BITS=64 -D_REENTRANT -lfuse -D_GNU_SOURCE
+LDFLAGS=-lfuse -ldl
+CFLAGS=-I./include/ -I/usr/include/fuse -I./libconfuse/src/ -O2 -D_FILE_OFFSET_BITS=64 -D_REENTRANT -D_GNU_SOURCE -pthread
 #CFLAGS=-I./include/ -O0 -fPIC -ggdb -DUGLDEBUGSET=2 -ansi
 #CFLAGS=-I./include/ -O3  -ansi
 
@@ -13,7 +14,7 @@ MRBFS_HEADERS=$(shell find include/ -name "*.h" -print)
 all: build_core build_drivers
 
 build_core:
-	$(CC) $(CFLAGS) -o mrbfs mrbfs.c mrbfs-filesys.c mrbfs-log.c ./libconfuse/src/.libs/libconfuse.a
+	$(CC) $(CFLAGS) -o mrbfs mrbfs.c mrbfs-filesys.c mrbfs-log.c ./libconfuse/src/.libs/libconfuse.a $(LDFLAGS)
 
 
 build_drivers:
