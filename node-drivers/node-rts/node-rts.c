@@ -26,21 +26,24 @@ int mrbfsNodeDriverVersionCheck(int ifaceVersion)
 
 // ~83 bytes per packet, and hold 25
 #define RX_PKT_BUFFER_SZ  (83 * 25)  
+#define TEMPERATURE_VALUE_BUFFER_SZ 33
+
 
 typedef enum
 {
 	MRB_RTS_UNITS_C = 0,
 	MRB_RTS_UNITS_K = 1,
-	MRB_RTS_UNITS_F = 2
+	MRB_RTS_UNITS_F = 2,
+	MRB_RTS_UNITS_R = 3
 } MrbRtsTemperatureUnits;
 
 typedef struct
 {
 	UINT32 pktsReceived;
 	UINT32 value;
-	MRBFSFileNode* tempSensorFiles[4];
+	MRBFSFileNode* tempSensorFiles[5];
 	MrbRtsTemperatureUnits units;
-	char* tempSensorValues[4];
+	char* tempSensorValues[5];
 	MRBFSFileNode* file_rxCounter;
 	MRBFSFileNode* file_rxPackets;
 	MRBFSFileNode* file_eepromNodeAddr;
@@ -85,46 +88,6 @@ void mrbfsFileNodeWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int data
 			mrbfsFileNode->value.valueInt = nodeLocalStorage->pktsReceived = 0;
 		}
 	}
-	else if (mrbfsFileNode == nodeLocalStorage->file_mcwritey)
-	{
-		MRBusPacket* txPkt = NULL;
-		// Oh, we're going to write something to the bus, fun!
-		if (NULL == mrbfsNode->mrbfsNodeTxPacket)
-			(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_INFO, "Node [%s] can't transmit - no mrbfsNodeTxPacket function defined", mrbfsNode->nodeName);
-		else if (NULL == (txPkt = calloc(1, sizeof(MRBusPacket))))
-			(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_INFO, "Node [%s] can't transmit - failed txPkt allocation", mrbfsNode->nodeName);
-		else
-		{
-			(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_INFO, "Node [%s] sending packet (dest=0x%02X)", mrbfsNode->nodeName, mrbfsNode->address);
-			txPkt->bus = mrbfsNode->bus;
-			txPkt->pkt[MRBUS_PKT_SRC] = 0;  // A source of 0xFF will be replaced by the transmit drivers with the interface addresses
-			txPkt->pkt[MRBUS_PKT_DEST] = mrbfsNode->address;
-			txPkt->pkt[MRBUS_PKT_LEN] = 6;
-			txPkt->pkt[MRBUS_PKT_TYPE] = 'A';
-			(*mrbfsNode->mrbfsNodeTxPacket)(txPkt);
-			free(txPkt);
-		}
-	}
-	else
-	{
-		int i;
-		for(i=0; i<4; i++)
-		{
-			if (mrbfsFileNode == nodeLocalStorage->file_output[i])
-			{
-				MRBusPacket txPkt;
-				memset(&txPkt, 0, sizeof(MRBusPacket));
-				txPkt.pkt[MRBUS_PKT_SRC] = 0;  // A source of 0xFF will be replaced by the transmit drivers with the interface addresses
-				txPkt.pkt[MRBUS_PKT_DEST] = mrbfsNode->address;
-				txPkt.pkt[MRBUS_PKT_LEN] = 8;
-				txPkt.pkt[MRBUS_PKT_TYPE] = 'C';
-				txPkt.pkt[MRBUS_PKT_DATA] = i;
-				txPkt.pkt[MRBUS_PKT_DATA+1] = (atoi(data)>0)?1:0;
-				nodeQueueTransmitPacket(mrbfsNode, &txPkt);
-				break;
-			}
-		}
-	}	
 }
 
 // The mrbfsFileNodeRead function is called for files that identify themselves as "readback", meaning
@@ -251,23 +214,33 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 		nodeLocalStorage->units = MRB_RTS_UNITS_F;
 	else if (0 == strcmp("kelvin", unitsStr))
 		nodeLocalStorage->units = MRB_RTS_UNITS_K;
+	else if (0 == strcmp("rankine", unitsStr))
+		nodeLocalStorage->units = MRB_RTS_UNITS_R;
 	else
 		nodeLocalStorage->units = MRB_RTS_UNITS_C;
 
 
 
-	for(i=0; i<4; i++)
+	for(i=0; i<5; i++)
 	{
 		char tempSensorDefaultFilename[32];
 		char tempSensorKeyname[32];
 		const char* tempSensorFilename = tempSensorDefaultFilename;
-		sprintf(tempSensorKeyname, "temp_sensor_%c_name", 'A'+i);
-		sprintf(tempSensorDefaultFilename, "temp_sensor_%c", 'A' + i);
+		
+		if (i < 4)
+		{
+			sprintf(tempSensorKeyname, "temp_sensor_%c_name", 'A'+i);
+			sprintf(tempSensorDefaultFilename, "temp_sensor_%c", 'A' + i);
+		} else {
+			sprintf(tempSensorKeyname, "temp_sensor_internal_name");
+			sprintf(tempSensorDefaultFilename, "temp_sensor_internal");
+		}
+		
 		tempSensorFilename = mrbfsNodeOptionGet(mrbfsNode, tempSensorKeyname, tempSensorDefaultFilename);
 		nodeLocalStorage->tempSensorFiles[i] = (*mrbfsNode->mrbfsFilesystemAddFile)(tempSensorFilename, FNODE_RO_VALUE_STR, mrbfsNode->path);
 		// Allocate string storage for values
-		nodeLocalStorage->tempSensorValues[i] = calloc(1, 32);
-		memcpy(tempSensorValues[i], "No Data");
+		nodeLocalStorage->tempSensorValues[i] = calloc(1, TEMPERATURE_VALUE_BUFFER_SZ);
+		strcpy(nodeLocalStorage->tempSensorValues[i], "No Data");
 		nodeLocalStorage->tempSensorFiles[i]->value.valueStr = nodeLocalStorage->tempSensorValues[i];
 	}
 	return (0);
@@ -321,12 +294,12 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 		case 'S':
 		{
 			int i=0;
-			for(i=0; i<4; i++)
+			for(i=0; i<5; i++)
 			{
 				int shorted=0;
 				int open=0;
 				unsigned char flags = rxPkt->pkt[6];
-				unsigned short temperatureK = 0;
+				int temperatureK = 0;
 				switch(i)
 				{
 					case 0:
@@ -349,14 +322,52 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 						shorted = (flags & 0x02)?1:0;
 						temperatureK = (((unsigned short)rxPkt->pkt[13])<<8) + rxPkt->pkt[14];
 						break;
+					case 4:
+						open = 0;
+						shorted = 0;
+						temperatureK = (((unsigned short)rxPkt->pkt[15])<<8) + rxPkt->pkt[16];
+						break;
 				
 				}
-			
-						
-			
+				
+				memset(nodeLocalStorage->tempSensorValues[i], 0, TEMPERATURE_VALUE_BUFFER_SZ);
+				if (open)
+					sprintf(nodeLocalStorage->tempSensorValues[i], "Open Circuit");
+				else if (shorted)
+					sprintf(nodeLocalStorage->tempSensorValues[i], "Short Circuit");
+				else
+				{
+					// Fun with temperature conversions
+					// What we get in is in 1/16th degrees K, convert to real degrees K
+					double temperature = (double)temperatureK / 16.0;
+					
+					switch(nodeLocalStorage->units)
+					{
+						case MRB_RTS_UNITS_K:
+							snprintf(nodeLocalStorage->tempSensorValues[i], TEMPERATURE_VALUE_BUFFER_SZ-1, "%.2f K", temperature );
+							break;
 
+						case MRB_RTS_UNITS_R:
+							temperature = (temperature * 9.0) / 5.0;
+							snprintf(nodeLocalStorage->tempSensorValues[i], TEMPERATURE_VALUE_BUFFER_SZ-1, "%.2f R", temperature );
+							break;
 
-				nodeLocalStorage->file_output[i]->updateTime = currentTime;
+						case MRB_RTS_UNITS_F:
+							temperature -= 273.15; // Convert to C, then to F
+							temperature = (temperature * 9.0) / 5.0;
+							temperature += 32.0;
+							snprintf(nodeLocalStorage->tempSensorValues[i], TEMPERATURE_VALUE_BUFFER_SZ-1, "%.2f F", temperature );
+							break;
+
+						default:
+						case MRB_RTS_UNITS_C:
+							temperature -= 273.15; // Convert to C
+							snprintf(nodeLocalStorage->tempSensorValues[i], TEMPERATURE_VALUE_BUFFER_SZ-1, "%.2f C", temperature );
+							break;
+					}
+				
+				}
+				nodeLocalStorage->tempSensorFiles[i]->updateTime = currentTime;
 			}
 
 		}
