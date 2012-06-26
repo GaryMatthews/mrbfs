@@ -23,7 +23,7 @@ build_drivers:
 	make -C interface-drivers/interface-dummy
 	make -C node-drivers/node-generic
 	make -C node-drivers/node-bd42
-	
+	make -C node-drivers/node-rts	
 
 clean:
 	rm -f *.o
@@ -33,3 +33,5 @@ clean:
 	make -C interface-drivers/interface-dummy clean
 	make -C node-drivers/node-generic clean
 	make -C node-drivers/node-bd42 clean
+	make -C node-drivers/node-rts clean
+	

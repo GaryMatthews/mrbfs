@@ -71,7 +71,7 @@ static int mrbfsCI2SerialOpen(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 
 	options.c_cflag &= ~CRTSCTS;
 	options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
-	options.c_iflag &= ~(IXON | IXOFF | IXANY);
+	options.c_iflag &= ~(IXON | IXOFF | IXANY | ICRNL);
 	options.c_oflag &= ~OPOST;
 	options.c_cc[VTIME] = 0;
    options.c_cc[VMIN]   = 1;   // blocking read until 5 chars received
@@ -145,6 +145,8 @@ void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
       usleep(1000);
       while ((nbytes = read(fd, incomingByte, 1)) > 0)
       {
+        (*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface [%s] got byte [0x%02X]", mrbfsInterfaceDriver->interfaceName, incomingByte[0]);
+
          switch(incomingByte[0])
          {
             case ' ': 

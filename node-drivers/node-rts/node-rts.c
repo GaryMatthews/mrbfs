@@ -240,7 +240,7 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 		nodeLocalStorage->tempSensorFiles[i] = (*mrbfsNode->mrbfsFilesystemAddFile)(tempSensorFilename, FNODE_RO_VALUE_STR, mrbfsNode->path);
 		// Allocate string storage for values
 		nodeLocalStorage->tempSensorValues[i] = calloc(1, TEMPERATURE_VALUE_BUFFER_SZ);
-		strcpy(nodeLocalStorage->tempSensorValues[i], "No Data");
+		strcpy(nodeLocalStorage->tempSensorValues[i], "No Data\n");
 		nodeLocalStorage->tempSensorFiles[i]->value.valueStr = nodeLocalStorage->tempSensorValues[i];
 	}
 	return (0);
@@ -332,9 +332,9 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 				
 				memset(nodeLocalStorage->tempSensorValues[i], 0, TEMPERATURE_VALUE_BUFFER_SZ);
 				if (open)
-					sprintf(nodeLocalStorage->tempSensorValues[i], "Open Circuit");
+					sprintf(nodeLocalStorage->tempSensorValues[i], "Open Circuit\n");
 				else if (shorted)
-					sprintf(nodeLocalStorage->tempSensorValues[i], "Short Circuit");
+					sprintf(nodeLocalStorage->tempSensorValues[i], "Short Circuit\n");
 				else
 				{
 					// Fun with temperature conversions
@@ -344,25 +344,25 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 					switch(nodeLocalStorage->units)
 					{
 						case MRB_RTS_UNITS_K:
-							snprintf(nodeLocalStorage->tempSensorValues[i], TEMPERATURE_VALUE_BUFFER_SZ-1, "%.2f K", temperature );
+							snprintf(nodeLocalStorage->tempSensorValues[i], TEMPERATURE_VALUE_BUFFER_SZ-1, "%.2f K\n", temperature );
 							break;
 
 						case MRB_RTS_UNITS_R:
 							temperature = (temperature * 9.0) / 5.0;
-							snprintf(nodeLocalStorage->tempSensorValues[i], TEMPERATURE_VALUE_BUFFER_SZ-1, "%.2f R", temperature );
+							snprintf(nodeLocalStorage->tempSensorValues[i], TEMPERATURE_VALUE_BUFFER_SZ-1, "%.2f R\n", temperature );
 							break;
 
 						case MRB_RTS_UNITS_F:
 							temperature -= 273.15; // Convert to C, then to F
 							temperature = (temperature * 9.0) / 5.0;
 							temperature += 32.0;
-							snprintf(nodeLocalStorage->tempSensorValues[i], TEMPERATURE_VALUE_BUFFER_SZ-1, "%.2f F", temperature );
+							snprintf(nodeLocalStorage->tempSensorValues[i], TEMPERATURE_VALUE_BUFFER_SZ-1, "%.2f F\n", temperature );
 							break;
 
 						default:
 						case MRB_RTS_UNITS_C:
 							temperature -= 273.15; // Convert to C
-							snprintf(nodeLocalStorage->tempSensorValues[i], TEMPERATURE_VALUE_BUFFER_SZ-1, "%.2f C", temperature );
+							snprintf(nodeLocalStorage->tempSensorValues[i], TEMPERATURE_VALUE_BUFFER_SZ-1, "%.2f C\n", temperature );
 							break;
 					}
 				
