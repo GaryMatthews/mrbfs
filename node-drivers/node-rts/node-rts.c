@@ -311,7 +311,8 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 			
 			busVoltage = ((double)rxPkt->pkt[17])/10.0;
 			snprintf(nodeLocalStorage->busVoltageValue, TEMPERATURE_VALUE_BUFFER_SZ-1, "%.*f", nodeLocalStorage->decimalPositions, busVoltage, nodeLocalStorage->suppressUnits?"":" V\n" );
-			
+			nodeLocalStorage->file_busVoltage->updateTime = currentTime;
+
 			for(i=0; i<5; i++)
 			{
 				int shorted=0;
