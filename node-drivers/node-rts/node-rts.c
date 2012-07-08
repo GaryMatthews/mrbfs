@@ -310,7 +310,7 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 			int i=0;
 			
 			busVoltage = ((double)rxPkt->pkt[17])/10.0;
-			snprintf(nodeLocalStorage->busVoltageValue, TEMPERATURE_VALUE_BUFFER_SZ-1, "%.*f", nodeLocalStorage->decimalPositions, busVoltage, nodeLocalStorage->suppressUnits?"":" V\n" );
+			snprintf(nodeLocalStorage->busVoltageValue, TEMPERATURE_VALUE_BUFFER_SZ-1, "%.*f%s", nodeLocalStorage->decimalPositions, busVoltage, nodeLocalStorage->suppressUnits?"":" V\n" );
 			nodeLocalStorage->file_busVoltage->updateTime = currentTime;
 
 			for(i=0; i<5; i++)
@@ -376,13 +376,13 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 							temperature -= 273.15; // Convert to C, then to F
 							temperature = (temperature * 9.0) / 5.0;
 							temperature += 32.0;
-							snprintf(nodeLocalStorage->tempSensorValues[i], TEMPERATURE_VALUE_BUFFER_SZ-1, "%.*f", nodeLocalStorage->decimalPositions, temperature, nodeLocalStorage->suppressUnits?"":" F\n" );
+							snprintf(nodeLocalStorage->tempSensorValues[i], TEMPERATURE_VALUE_BUFFER_SZ-1, "%.*f%s", nodeLocalStorage->decimalPositions, temperature, nodeLocalStorage->suppressUnits?"":" F\n" );
 							break;
 
 						default:
 						case MRB_RTS_UNITS_C:
 							temperature -= 273.15; // Convert to C
-							snprintf(nodeLocalStorage->tempSensorValues[i], TEMPERATURE_VALUE_BUFFER_SZ-1, "%.*f", nodeLocalStorage->decimalPositions, temperature, nodeLocalStorage->suppressUnits?"":" C\n" );
+							snprintf(nodeLocalStorage->tempSensorValues[i], TEMPERATURE_VALUE_BUFFER_SZ-1, "%.*f%s", nodeLocalStorage->decimalPositions, temperature, nodeLocalStorage->suppressUnits?"":" C\n" );
 							break;
 					}
 				
