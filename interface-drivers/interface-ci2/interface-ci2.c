@@ -149,6 +149,7 @@ void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 
          switch(incomingByte[0])
          {
+            case 0x00:
             case ' ': 
             case 0x0A:
                break;
@@ -221,6 +222,11 @@ void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
             default:
 					processingPacket = 1;
                *bufptr++ = incomingByte[0];
+               if (bufptr >= buffer + sizeof(buffer))
+               {
+                processingPacket = 0;
+                bufptr = buffer;
+               }
                break;
          }
       }
