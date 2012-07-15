@@ -24,6 +24,7 @@ build_drivers:
 	make -C node-drivers/node-generic
 	make -C node-drivers/node-bd42
 	make -C node-drivers/node-rts	
+	make -C node-drivers/node-th
 
 clean:
 	rm -f *.o
@@ -34,4 +35,4 @@ clean:
 	make -C node-drivers/node-generic clean
 	make -C node-drivers/node-bd42 clean
 	make -C node-drivers/node-rts clean
-	
+	make -C node-drivers/node-th clean	
