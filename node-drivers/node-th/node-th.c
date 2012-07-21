@@ -53,6 +53,7 @@ typedef struct
 	MRBFSFileNode* file_eepromNodeAddr;
 	UINT8 suppressUnits;
 	UINT8 decimalPositions;
+	UINT8 isWireless;
 	char rxPacketStr[RX_PKT_BUFFER_SZ];
 	UINT8 requestRXFeed;
 	MRBusPacketQueue rxq;
@@ -219,6 +220,10 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 
 	nodeLocalStorage->decimalPositions = atoi(mrbfsNodeOptionGet(mrbfsNode, "decimal_positions", "2"));
 
+	nodeLocalStorage->isWireless = 0;
+	if (0 == strcmp(mrbfsNodeOptionGet(mrbfsNode, "connection", "wired"), "wireless"))
+		nodeLocalStorage->isWireless = 1;
+
 	unitsStr = mrbfsNodeOptionGet(mrbfsNode, "temperature_units", "celsius");
 	if (0 == strcmp("celsius", unitsStr))
 		nodeLocalStorage->units = MRB_RTS_UNITS_C;
@@ -241,7 +246,7 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 	strcpy(nodeLocalStorage->relativeHumidityValue, "No Data\n");
 	nodeLocalStorage->file_relativeHumidity->value.valueStr = nodeLocalStorage->relativeHumidityValue;
 	
-	nodeLocalStorage->file_busVoltage = (*mrbfsNode->mrbfsFilesystemAddFile)("mrbus_voltage", FNODE_RO_VALUE_STR, mrbfsNode->path);
+	nodeLocalStorage->file_busVoltage = (*mrbfsNode->mrbfsFilesystemAddFile)(nodeLocalStorage->isWireless?"battery_voltage":"mrbus_voltage", FNODE_RO_VALUE_STR, mrbfsNode->path);
 	nodeLocalStorage->busVoltageValue = calloc(1, TEMPERATURE_VALUE_BUFFER_SZ);
 	strcpy(nodeLocalStorage->busVoltageValue, "No Data\n");
 	nodeLocalStorage->file_busVoltage->value.valueStr = nodeLocalStorage->busVoltageValue;
