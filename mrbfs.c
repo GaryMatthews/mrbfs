@@ -609,8 +609,7 @@ int mrbfsLoadNodes()
 			pthread_mutexattr_destroy(&lockAttr);		
 		}
 
-
-		ret = asprintf(&modulePath, "0x%02X - %s", address, nodeName);
+		ret = asprintf(&modulePath, "0x%02X-%s", address, nodeName);
 		ret = asprintf(&fsPath, "/bus%d", bus);
 		
 		node->nodeName = strdup(nodeName);
