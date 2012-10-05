@@ -129,19 +129,23 @@ typedef struct MRBFSBusNode
 
 	// Function pointers from the node to main
 	int (*mrbfsNodeInit)(struct MRBFSBusNode*);
+	int (*mrbfsNodeTick)(struct MRBFSBusNode*, time_t currentTime);	
 	int (*mrbfsNodeRxPacket)(struct MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt);
 	int (*mrbfsNodeDestroy)(struct MRBFSBusNode*);
 	
 } MRBFSBusNode;
 
+#define MRBFS_MAX_INTERFACES   16
+#define MRBFS_MAX_BUS_NODES    256
+
 typedef struct
 {
 	UINT8 bus;
-	MRBFSBusNode* node[256];
+	MRBFSBusNode* node[MRBFS_MAX_BUS_NODES];
   	pthread_mutex_t busLock;
 } MRBFSBus;
 
-#define MRBFS_MAX_INTERFACES   16
+
 
 typedef struct MRBFSInterfaceDriver
 {
@@ -188,6 +192,9 @@ typedef struct
   	pthread_mutex_t masterLock;
 	MRBFSFileNode* rootNode;
 	pthread_mutex_t fsLock;
+	pthread_t tickerThread;
+
+	UINT8 terminate;
 	
 	MRBusPacketQueue rx;  // RX is the incoming queue, meaning from the interfaces to the filesystem
 	MRBusPacketQueue tx;  // TX is the outgoing queue, meaning from the filesystem to the interfaces

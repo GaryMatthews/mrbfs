@@ -32,6 +32,7 @@ static void* mrbfsInit(struct fuse_conn_info *conn)
 void mrbfsInterfacesDestroy()
 {
 	int i;
+	gMrbfsConfig->terminate = 1;
 	// Give the interfaces the chance to terminate gracefully
 	for(i = 0; i < gMrbfsConfig->mrbfsUsedInterfaces; i++)
 	{
@@ -101,6 +102,64 @@ static int mrbfs_opt_proc(void *data, const char *arg, int key, struct fuse_args
      }
      return 1;
 }
+
+
+void mrbfsTicker()
+{
+	UINT32 i=0, busNumber=0, nodeNumber=0;
+	time_t currentTime=0;
+	char buffer[256];
+	struct tm timeLocal;
+	
+	while(!gMrbfsConfig->terminate)
+	{
+		usleep(10000);
+		i++;
+		if (i<100)
+			continue;
+
+		i=0;
+		
+		// Fire off tick to everybody once a second
+		// Traverse all valid busses and nodes and issue a tick command if any of them have a tick handler registered
+		currentTime = time(NULL);
+		localtime_r(&currentTime, &timeLocal);
+		
+		mrbfsLogMessage(MRBFS_LOG_INFO, "Ticking at %s [%d]", asctime_r(&timeLocal, buffer));
+		
+		for(busNumber=0; busNumber<MRBFS_MAX_INTERFACES; busNumber++)
+		{
+			MRBFSBus* bus = gMrbfsConfig->bus[busNumber];
+			if (NULL == bus)
+				continue;
+
+			for(nodeNumber=0; nodeNumber<MRBFS_MAX_BUS_NODES; nodeNumber++)
+			{
+				MRBFSBusNode* node = bus->node[nodeNumber];
+				if (NULL == node || NULL == node->mrbfsNodeTick)
+					continue;
+				(*node->mrbfsNodeTick)((MRBFSBusNode*)node->nodeLocalStorage, currentTime);
+			}
+		}
+	}
+	
+	mrbfsLogMessage(MRBFS_LOG_INFO, "Ticker terminating");	
+}
+
+void mrbfsStartTicker()
+{
+	mrbfsLogMessage(MRBFS_LOG_INFO, "Acquiring lock to start ticker");
+	pthread_mutex_lock(&gMrbfsConfig->masterLock);
+	mrbfsLogMessage(MRBFS_LOG_INFO, "Lock acquired");	
+	// The ticker is a thread with a 1 second clock that calls all nodes with a tick() function once a second
+	pthread_create(&gMrbfsConfig->tickerThread, NULL, (void*)&mrbfsTicker, NULL);
+	mrbfsLogMessage(MRBFS_LOG_INFO, "Ticker created");	
+	pthread_detach(gMrbfsConfig->tickerThread);
+	mrbfsLogMessage(MRBFS_LOG_INFO, "Ticker detached");	
+	pthread_mutex_unlock(&gMrbfsConfig->masterLock);
+	mrbfsLogMessage(MRBFS_LOG_INFO, "Released master lock - ticker running");	
+}
+
 
 void mrbfsSingleInitConfig()
 {
@@ -219,6 +278,9 @@ int main(int argc, char *argv[])
 	// Setup nodes we know about
 	mrbfsLoadNodes();	
 	
+	mrbfsLogMessage(MRBFS_LOG_INFO, "Starting MRBFS 1 second ticker");	
+	mrbfsStartTicker();
+	
 	mrbfsLogMessage(MRBFS_LOG_INFO, "Starting MRBFS fuse main loop");
 	if (multithreaded)
 		res = fuse_loop_mt(fuse);
@@ -237,6 +299,7 @@ int main(int argc, char *argv[])
 
 	return(res);
 }
+
 
 int fileExists(const char* filename)
 {
@@ -334,7 +397,7 @@ int mrbfsAddBus(UINT8 busNumber)
 
 
 	
-	pthread_mutex_unlock(&gMrbfsConfig->logLock);
+	pthread_mutex_unlock(&gMrbfsConfig->masterLock);
 	mrbfsLogMessage(MRBFS_LOG_DEBUG, "Master mutex lock released");	
 }
 
@@ -626,6 +689,7 @@ int mrbfsLoadNodes()
 		node->mrbfsNodeInit = dlsym(nodeDriverHandle, "mrbfsNodeInit");
 		node->mrbfsNodeDestroy = dlsym(nodeDriverHandle, "mrbfsNodeDestroy");
 		node->mrbfsNodeRxPacket = dlsym(nodeDriverHandle, "mrbfsNodeRxPacket");
+		node->mrbfsNodeTick = dlsym(nodeDriverHandle, "mrbfsNodeTick");		
 		node->baseFileNode = mrbfsFilesystemAddFile(modulePath, FNODE_DIR_NODE, fsPath);
 
 		node->nodeOptions = cfg_size(cfgNode, "option");
