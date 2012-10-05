@@ -2,7 +2,9 @@
 #define _MRBFS_TYPES_H
 
 #define MRBFS_MAX_PACKET_LEN 0x14
-#define MRBFS_MAX_NODES 256
+#define MRBFS_MAX_INTERFACES   16
+#define MRBFS_MAX_BUS_NODES    256
+#define MRBFS_MAX_CLOCKS       16
 
 // Packet component defines
 #define MRBUS_PKT_DEST  0
@@ -135,8 +137,7 @@ typedef struct MRBFSBusNode
 	
 } MRBFSBusNode;
 
-#define MRBFS_MAX_INTERFACES   16
-#define MRBFS_MAX_BUS_NODES    256
+
 
 typedef struct
 {
@@ -178,6 +179,14 @@ typedef struct MRBFSInterfaceDriver
 	
 } MRBFSInterfaceDriver;
 
+typedef struct
+{
+	const char* clockNameStr;
+	UINT8 bus;
+	int tzOffset;
+	int txInterval;
+	int localTime;
+} MRBFSClock;
 
 typedef struct 
 {
@@ -188,7 +197,7 @@ typedef struct
   	pthread_mutex_t logLock;
 	MRBFSInterfaceDriver* mrbfsInterfaceDrivers[MRBFS_MAX_INTERFACES];
 	UINT8 mrbfsUsedInterfaces;
-	MRBFSBus* bus[256];
+	MRBFSBus* bus[MRBFS_MAX_BUS_NODES];
   	pthread_mutex_t masterLock;
 	MRBFSFileNode* rootNode;
 	pthread_mutex_t fsLock;

@@ -106,8 +106,8 @@ static int mrbfs_opt_proc(void *data, const char *arg, int key, struct fuse_args
 
 void mrbfsTicker()
 {
-	UINT32 i=0, busNumber=0, nodeNumber=0;
-	time_t currentTime=0;
+	UINT32 i=0, busNumber=0, nodeNumber=0, timePktValid=0;
+	time_t currentTime=0, startTime = time(NULL);
 	char buffer[256];
 	struct tm timeLocal;
 	

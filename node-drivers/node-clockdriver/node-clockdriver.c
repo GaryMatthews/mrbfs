@@ -1,7 +1,7 @@
 /*************************************************************************
-Title:    MRBus Filesystem Node Driver Template
+Title:    MRBus Filesystem Clock Driver Node
 Authors:  Nathan Holmes <maverick@drgw.net>
-File:     node-template.c
+File:     node-clockdriver.c
 License:  GNU General Public License v3
 
 LICENSE:
@@ -36,10 +36,11 @@ LICENSE:
 #include <stdio.h>
 #include <pthread.h>
 #include <unistd.h>
+#include <time.h>
 #include "mrbfs-module.h"
 #include "mrbfs-pktqueue.h"
 
-#define MRBFS_NODE_DRIVER_NAME   "node-template"
+#define MRBFS_NODE_DRIVER_NAME   "node-clockdriver"
 
 /*******************************************************
  Internal Helper Function Headers - may or may not be helpful to your module
@@ -74,15 +75,11 @@ Purpose:  Holds the current state of this particular node,
 
 typedef struct
 {
-	MRBFSFileNode* file_rxCounter;
-	MRBFSFileNode* file_rxPackets;
-	MRBFSFileNode* file_eepromNodeAddr;
-	MRBFSFileNode* file_sendPing;
-	char rxPacketStr[RX_PKT_BUFFER_SZ];
-	UINT8 requestRXFeed;
-	MRBusPacketQueue rxq;
-	int timeout;
-	time_t lastUpdated;	
+	MRBFSFileNode* file_lastTimeSent;
+	MRBFSFileNode* file_txInterval;	
+	char lastTimeStr[256];
+	time_t lastUpdated;
+	time_t startupTime;
 } NodeLocalStorage;
 
 
@@ -119,7 +116,6 @@ int mrbfsNodeDriverVersionCheck(int ifaceVersion)
 	return(1);
 }
 
-
 /*******************************************************
 Pubic Function:  mrbfsFileNodeWrite()
 
@@ -154,38 +150,19 @@ void mrbfsFileNodeWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int data
 	MRBFSBusNode* mrbfsNode = (MRBFSBusNode*)(mrbfsFileNode->nodeLocalStorage);
 	NodeLocalStorage* nodeLocalStorage = (NodeLocalStorage*)(mrbfsNode->nodeLocalStorage);
 
-
 	// The fastest way to see what file is getting written is to compare the FileNode pointers
 	// to files that we know about.
-	if (mrbfsFileNode == nodeLocalStorage->file_rxCounter)
+	if (mrbfsFileNode == nodeLocalStorage->file_txInterval)
 	{
-		// Example of a simple file write that resets the packet counter and packet log
-		if (0 == atoi(data))
+		int i = atoi(data);
+		if (i < 0)
 		{
-			memset(nodeLocalStorage->rxPacketStr, 0, RX_PKT_BUFFER_SZ);
-			mrbfsFileNode->value.valueInt = 0;
+			(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_INFO, "Node [%s] cannot set negative transmit interval, turning off tx", mrbfsNode->nodeName);
+			i = 0;
 		}
-	}
-	else if (mrbfsFileNode == nodeLocalStorage->file_sendPing)
-	{
-		// Example of a more complex scenario, where we want to send a bus packet in response
-		// to a write.  Normally this would do something useful, but in the interest of safety,
-      // the example will just send a ping.
-
-		MRBusPacket txPkt;
-
-		// Set up the packet - initialize and fill in a few key values
-		memset(&txPkt, 0, sizeof(MRBusPacket));
-		txPkt.bus = mrbfsNode->bus;
-		txPkt.pkt[MRBUS_PKT_SRC] = 0;  // A source of 0 will be replaced by the transmit drivers with the interface addresses
-		txPkt.pkt[MRBUS_PKT_DEST] = mrbfsNode->address;
-		txPkt.pkt[MRBUS_PKT_LEN] = 6;
-		txPkt.pkt[MRBUS_PKT_TYPE] = 'A';
-		if (nodeQueueTransmitPacket(mrbfsNode, &txPkt) < 0)
-			(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_ERROR, "Node [%s] failed to send packet", mrbfsNode->nodeName);
+		nodeLocalStorage->file_txInterval->value.valueInt = i;
 	}
 }
-
 
 /*******************************************************
 Public Function:  mrbfsFileNodeRead()
@@ -225,69 +202,22 @@ size_t mrbfsFileNodeRead(MRBFSFileNode* mrbfsFileNode, char *buf, size_t size, o
 	MRBFSBusNode* mrbfsNode = (MRBFSBusNode*)(mrbfsFileNode->nodeLocalStorage);
 	NodeLocalStorage* nodeLocalStorage = (NodeLocalStorage*)(mrbfsNode->nodeLocalStorage);
 	MRBusPacket pkt;
-	int timeout = 0;
-	int foundResponse = 0;
 	char responseBuffer[256] = "";
 	size_t len=0;
-
-	if (mrbfsFileNode == nodeLocalStorage->file_eepromNodeAddr)
+	
+	if (mrbfsFileNode == nodeLocalStorage->file_lastTimeSent)
 	{
-		// When the eepromNodeAddr file is read, it sends a packet out to the node to read
-		// its eeprom address 0x00.
-		MRBusPacket txPkt;
-		// Set up the packet - initialize and fill in a few key values
-		memset(&txPkt, 0, sizeof(MRBusPacket));
-		txPkt.bus = mrbfsNode->bus;    // Important to set the transmit pkt's bus number so it goes to the right transmitters
-		txPkt.pkt[MRBUS_PKT_SRC] = 0;  // A source of 0 will be replaced by the transmit drivers with the interface addresses
-		txPkt.pkt[MRBUS_PKT_DEST] = mrbfsNode->address; // The destination is the node's current address
-		txPkt.pkt[MRBUS_PKT_LEN] = 7;     // Length of 7
-		txPkt.pkt[MRBUS_PKT_TYPE] = 'R';  // Packet type of EEPROM read
-		txPkt.pkt[MRBUS_PKT_DATA] = 0;    // EEPROM read address 0, the node's address byte
-
-		// Spin on requestRXFeed - we need to make sure we're the only one listening
-		// This should probably be a mutex
-		while(nodeLocalStorage->requestRXFeed);
-
-		// Once nobody else is using the rx feed, grab it and initialize the queue
-		nodeLocalStorage->requestRXFeed = 1;
-		mrbusPacketQueueInitialize(&nodeLocalStorage->rxq);
-
-		// Once we're listening to the bus for responses, send our query
-		if (nodeQueueTransmitPacket(mrbfsNode, &txPkt) < 0)
-			(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_ERROR, "Node [%s] failed to send packet", mrbfsNode->nodeName);
-
-		// Now, wait.  Spin in a loop with a sleep so we don't hog the processor
-		// Currently this yields a 1s timeout.  Break as soon as we have our answer packet.
-		for(timeout=0; !foundResponse && timeout<1000; timeout++)
+		if (0 == nodeLocalStorage->lastUpdated)
+			strcpy(responseBuffer, "Never");
+		else
 		{
-			while(!foundResponse && mrbusPacketQueueDepth(&nodeLocalStorage->rxq))
-			{
-				memset(&pkt, 0, sizeof(MRBusPacket));
-				mrbusPacketQueuePop(&nodeLocalStorage->rxq, &pkt);
-				(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Readback [%s] saw pkt [%02X->%02X] ['%c']", mrbfsNode->nodeName, pkt.pkt[MRBUS_PKT_SRC], pkt.pkt[MRBUS_PKT_DEST], pkt.pkt[MRBUS_PKT_TYPE]);
-
-				if (pkt.pkt[MRBUS_PKT_SRC] == mrbfsNode->address && pkt.pkt[MRBUS_PKT_TYPE] == 'r')
-					foundResponse = 1;
-			}
-			usleep(1000);
+			struct tm localTime;
+			localtime_r(&nodeLocalStorage->lastUpdated, &localTime);
+			asctime_r(&localTime, responseBuffer);
 		}
-		// We're done, somebody else can have the RX feed
-		nodeLocalStorage->requestRXFeed = 0;
-
-		// If we didn't get an answer, just log a warning (MRBus is not guaranteed communications, after all)
-		// A smarter node could implement retry logic
-		if(!foundResponse)
-		{
-			(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_WARNING, "Node [%s], no response to EEPROM read request", mrbfsNode->nodeName);
-			return(size = 0);
-		}
-		// If we're here, we have a response.  Write it to the response buffer (locally) and the end of this function will put it in the
-		// actual file read buffer
-		sprintf(responseBuffer, "0x%02X\n", pkt.pkt[MRBUS_PKT_DATA]);
 	}
 	
 	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] responding to readback on [%s] with [%s]", mrbfsNode->nodeName, mrbfsFileNode->fileName, responseBuffer);
-
 
 	// This is common read() code that takes whatever's in responseBuffer and puts it into the buffer being
 	// given to us by the filesystem
@@ -387,32 +317,14 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 	mrbfsNode->nodeLocalStorage = (void*)nodeLocalStorage;
 
 	// Initialize pieces of the local storage and create the files our node will use to communicate with the user
-	nodeLocalStorage->timeout = atoi(mrbfsNodeOptionGet(mrbfsNode, "timeout", "none"));
 	nodeLocalStorage->lastUpdated = 0;
-
-	// File "rxCounter" - the rxCounter file node will be a simple read/write integer.  Writing a value to it will reset both
-	//  it and the rxPackets log file
-	nodeLocalStorage->file_rxCounter = (*mrbfsNode->mrbfsFilesystemAddFile)("rxCounter", FNODE_RW_VALUE_INT, mrbfsNode->path);
-	nodeLocalStorage->file_rxCounter->value.valueInt = 0; // Initialize the value - initially on load we've seen no packets
-	nodeLocalStorage->file_rxCounter->mrbfsFileNodeWrite = &mrbfsFileNodeWrite; // Associate this node's mrbfsFileNodeWrite for write callbacks
-	nodeLocalStorage->file_rxCounter->nodeLocalStorage = (void*)mrbfsNode;  // Associate this node's memory with the filenode's local storage
+	nodeLocalStorage->startupTime = time(NULL);
 
 	// File "rxPackets" - the rxPackets file node will be a read-only string node that holds a log of the last 25
 	//  packets received.  It will be backed by a buffer in nodeLocalStorage.
-	nodeLocalStorage->file_rxPackets = (*mrbfsNode->mrbfsFilesystemAddFile)("rxPackets", FNODE_RO_VALUE_STR, mrbfsNode->path);
-	nodeLocalStorage->file_rxPackets->value.valueStr = nodeLocalStorage->rxPacketStr;
-
-	// File "sendPing" will send a ping when written.  Reading it doesn't mean much, so we'll just make it a r/w integer
-	nodeLocalStorage->file_sendPing = (*mrbfsNode->mrbfsFilesystemAddFile)("sendPing", FNODE_RW_VALUE_INT, mrbfsNode->path);
-	nodeLocalStorage->file_sendPing->mrbfsFileNodeWrite = &mrbfsFileNodeWrite; // Associate this node's mrbfsFileNodeWrite for write callbacks
-	nodeLocalStorage->file_sendPing->nodeLocalStorage = (void*)mrbfsNode; // Associate this node's memory with the filenode's local storage
-
-	// File "eepromNodeAddr" demonstrates a complex readback file that must communicate across the bus to get its answer
-	//  It's a readback file.
-	nodeLocalStorage->file_eepromNodeAddr = (*mrbfsNode->mrbfsFilesystemAddFile)("eepromNodeAddr", FNODE_RO_VALUE_READBACK, mrbfsNode->path);
-	nodeLocalStorage->file_eepromNodeAddr->mrbfsFileNodeWrite = &mrbfsFileNodeWrite; // Associate this node's mrbfsFileNodeWrite for write callbacks
-	nodeLocalStorage->file_eepromNodeAddr->mrbfsFileNodeRead = &mrbfsFileNodeRead; // Associate this node's mrbfsFileNodeWrite for read callbacks
-	nodeLocalStorage->file_eepromNodeAddr->nodeLocalStorage = (void*)mrbfsNode;// Associate this node's memory with the filenode's local storage
+	nodeLocalStorage->file_lastTimeSent = (*mrbfsNode->mrbfsFilesystemAddFile)("last_time_sent", FNODE_RO_VALUE_READBACK, mrbfsNode->path);
+	nodeLocalStorage->file_txInterval = (*mrbfsNode->mrbfsFilesystemAddFile)("tx_interval", FNODE_RW_VALUE_INT, mrbfsNode->path);	
+	nodeLocalStorage->file_txInterval->value.valueInt = atoi(mrbfsNodeOptionGet(mrbfsNode, "tx_interval", "5"));
 
 	// Return 0 to indicate success
 	return (0);
@@ -452,17 +364,49 @@ int mrbfsNodeTick(MRBFSBusNode* mrbfsNode, time_t currentTime)
 	NodeLocalStorage* nodeLocalStorage = mrbfsNode->nodeLocalStorage;
 	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_INFO, "Node [%s] received tick", mrbfsNode->nodeName);
 
-	// If the node receive timeout is 0, that means it's not set and data should live forever
-	if (0 == nodeLocalStorage->timeout)
+	// 0 means don't transmit, so skip the rest
+	if (0 == nodeLocalStorage->file_txInterval->value.valueInt)
 		return(0);
-	
-	if (currentTime > (nodeLocalStorage->lastUpdated + nodeLocalStorage->timeout))
+
+	if ( 0 == (currentTime - nodeLocalStorage->startupTime % (nodeLocalStorage->file_txInterval->value.valueInt)))
 	{
-		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_INFO, "Node [%s] has timed out on receive, resetting files", mrbfsNode->nodeName);	
-		pthread_mutex_lock(&mrbfsNode->nodeLock);
-		nodeResetFilesNoData(mrbfsNode);
-		pthread_mutex_unlock(&mrbfsNode->nodeLock);
+		MRBusPacket txPkt;
+		UINT32 year=0;
+		struct tm localTime;
+
+		localtime_r(&currentTime, &localTime);
+		year = 1900 + localTime.tm_year;
+
+		memset(&txPkt, 0, sizeof(MRBusPacket));
+		txPkt.bus = mrbfsNode->bus;
+		txPkt.pkt[MRBUS_PKT_SRC] = mrbfsNode->address;  // A source of 0 will be replaced by the transmit drivers with the interface addresses
+		txPkt.pkt[MRBUS_PKT_DEST] = 0xFF; // Broadcast
+		txPkt.pkt[MRBUS_PKT_LEN] = 16;
+		txPkt.pkt[MRBUS_PKT_TYPE] = 'T';
+		
+		txPkt.pkt[MRBUS_PKT_DATA+0] = localTime.tm_hour;
+		txPkt.pkt[MRBUS_PKT_DATA+1] = localTime.tm_min;
+		txPkt.pkt[MRBUS_PKT_DATA+2] = localTime.tm_sec;
+		txPkt.pkt[MRBUS_PKT_DATA+3] = 0;
+
+		txPkt.pkt[MRBUS_PKT_DATA+4] = 0;  // Fast time hours
+		txPkt.pkt[MRBUS_PKT_DATA+5] = 0;	 // Fast time minutes
+		txPkt.pkt[MRBUS_PKT_DATA+6] = 0;  // Fast time seconds
+		txPkt.pkt[MRBUS_PKT_DATA+7] = 0;  // Scale factor
+
+
+		txPkt.pkt[MRBUS_PKT_DATA+8] = 0xFF&(year>>4);  // Upper 8 bits of 12-bit year
+		txPkt.pkt[MRBUS_PKT_DATA+9] = (0xF0 & (year<<4)) | (0x0F & localTime.tm_mon);	 // bits [4:7] lower 4 bits of 12 bit year, bits[0:3] month
+		txPkt.pkt[MRBUS_PKT_DATA+10] = localTime.tm_mday;
+
+		nodeLocalStorage->lastUpdated = currentTime;
+		
+		if (nodeQueueTransmitPacket(mrbfsNode, &txPkt) < 0)
+			(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_ERROR, "Node [%s] failed to send packet", mrbfsNode->nodeName);
+
+
 	}
+
 	return(0);
 }
 
@@ -572,43 +516,6 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 			break;			
 	}
 
-	// If some filesystem function (usually a readback file waiting for a response) has requested we
-	// give them a feed, push the current packet onto our receive queue
-	if (nodeLocalStorage->requestRXFeed)
-		mrbusPacketQueuePush(&nodeLocalStorage->rxq, rxPkt, 0);
-
-	// Log the receipt of the current packet into the buffer backing "rxPackets"
-	{
-		char *newStart = nodeLocalStorage->rxPacketStr;
-		size_t rxPacketLen = strlen(nodeLocalStorage->rxPacketStr), newLen=rxPacketLen, newRemaining=2000-rxPacketLen;
-		char timeString[64];
-		char newPacket[100];
-		int b;
-		size_t timeSize=0;
-		struct tm pktTimeTM;
-
-		localtime_r(&currentTime, &pktTimeTM);
-		memset(newPacket, 0, sizeof(newPacket));
-		strftime(newPacket, sizeof(newPacket), "[%Y%m%d %H%M%S] ", &pktTimeTM);
-	
-		for(b=0; b<rxPkt->len; b++)
-			sprintf(newPacket + 18 + b*3, "%02X ", rxPkt->pkt[b]);
-		*(newPacket + 18 + b*3-1) = '\n';
-		*(newPacket + 18 + b*3) = 0;
-		newLen = 18 + b*3;
-
-		// Trim rear of existing string
-		trimNewlines(nodeLocalStorage->rxPacketStr, 24);
-
-		memmove(nodeLocalStorage->rxPacketStr + newLen, nodeLocalStorage->rxPacketStr, strlen(nodeLocalStorage->rxPacketStr));
-		memcpy(nodeLocalStorage->rxPacketStr, newPacket, newLen);
-
-		nodeLocalStorage->file_rxPackets->updateTime = currentTime;
-	}
-
-	// Update the number of packets received and the file time, reflecting the time the packet was received
-	nodeLocalStorage->file_rxCounter->updateTime = currentTime;
-	nodeLocalStorage->file_rxCounter->value.valueInt++;
 	// Release our lock, we're done updating things
 	pthread_mutex_unlock(&mrbfsNode->nodeLock);
 	return(0);

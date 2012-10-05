@@ -1,0 +1,33 @@
+log-file = "/home/ndholmes/data/mrbus/mrbfs/mrbfs.log"
+module-directory = "/home/ndholmes/data/mrbus/mrbfs/modules"
+
+#interface ci2
+#{
+#	bus = 0
+#	driver = "interface-ci2.so"
+#	port = "/dev/ttyUSB0"
+#	interface-address = "0xFE"
+#}
+
+interface dummy
+{
+	bus = 0
+	driver = "interface-ci2.so"
+	interface-address = "0xFE"
+}
+
+clock realtime
+{
+
+
+}
+
+
+node mrb-rts
+{
+	bus = 0
+	driver = "node-rts.so"
+	address = "0x82"
+	option temperature_units { value = "celsius" }
+	option suppress_units { value = "yes" }
+}

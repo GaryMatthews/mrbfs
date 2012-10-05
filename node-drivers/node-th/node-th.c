@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <pthread.h>
 #include <unistd.h>
+#include <time.h>
 #include "mrbfs-module.h"
 #include "mrbfs-pktqueue.h"
 
@@ -57,6 +58,8 @@ typedef struct
 	char rxPacketStr[RX_PKT_BUFFER_SZ];
 	UINT8 requestRXFeed;
 	MRBusPacketQueue rxq;
+	int timeout;
+	time_t lastUpdated;
 } NodeLocalStorage;
 
 
@@ -190,18 +193,45 @@ const char* mrbfsNodeOptionGet(MRBFSBusNode* mrbfsNode, const char* nodeOptionKe
 	return(defaultValue);
 }
 
+void nodeResetFilesNoData(MRBFSBusNode* mrbfsNode)
+{
+	NodeLocalStorage* nodeLocalStorage = mrbfsNode->nodeLocalStorage;
+	strcpy(nodeLocalStorage->tempSensorValue, "No Data\n");
+	strcpy(nodeLocalStorage->relativeHumidityValue, "No Data\n");
+	strcpy(nodeLocalStorage->busVoltageValue, "No Data\n");
+}
+
+int mrbfsNodeTick(MRBFSBusNode* mrbfsNode, time_t currentTime)
+{
+	NodeLocalStorage* nodeLocalStorage = mrbfsNode->nodeLocalStorage;
+	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_INFO, "Node [%s] received tick", mrbfsNode->nodeName);
+
+	if (0 == nodeLocalStorage->timeout)
+		return(0);
+		
+	if (currentTime > (nodeLocalStorage->lastUpdated + nodeLocalStorage->timeout))
+	{
+		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_INFO, "Node [%s] has timed out on receive, resetting files", mrbfsNode->nodeName);	
+		pthread_mutex_lock(&mrbfsNode->nodeLock);
+		nodeResetFilesNoData(mrbfsNode);
+		pthread_mutex_unlock(&mrbfsNode->nodeLock);
+	}
+	return(0);
+}
+
 int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 {
 	NodeLocalStorage* nodeLocalStorage = calloc(1, sizeof(NodeLocalStorage));
 	int i;
 	int units = MRB_RTS_UNITS_C;
 	const char* unitsStr;
-
+	
 	mrbfsNode->nodeLocalStorage = (void*)nodeLocalStorage;
 
 	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_INFO, "Node [%s] starting up with driver [%s]", mrbfsNode->nodeName, MRBFS_NODE_DRIVER_NAME);
 
 	nodeLocalStorage->pktsReceived = 0;
+	nodeLocalStorage->lastUpdated = 0;
 	nodeLocalStorage->file_rxCounter = (*mrbfsNode->mrbfsFilesystemAddFile)("rxCounter", FNODE_RW_VALUE_INT, mrbfsNode->path);
 	nodeLocalStorage->file_rxPackets = (*mrbfsNode->mrbfsFilesystemAddFile)("rxPackets", FNODE_RO_VALUE_STR, mrbfsNode->path);
 	nodeLocalStorage->file_eepromNodeAddr = (*mrbfsNode->mrbfsFilesystemAddFile)("eepromNodeAddr", FNODE_RO_VALUE_READBACK, mrbfsNode->path);
@@ -217,6 +247,8 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 	nodeLocalStorage->suppressUnits = 0;
 	if (0 == strcmp(mrbfsNodeOptionGet(mrbfsNode, "suppress_units", "no"), "yes"))
 		nodeLocalStorage->suppressUnits = 1;
+
+	nodeLocalStorage->timeout = atoi(mrbfsNodeOptionGet(mrbfsNode, "timeout", "none"));
 
 	nodeLocalStorage->decimalPositions = atoi(mrbfsNodeOptionGet(mrbfsNode, "decimal_positions", "2"));
 
@@ -238,19 +270,17 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 
 	nodeLocalStorage->file_tempSensor = (*mrbfsNode->mrbfsFilesystemAddFile)("temperature", FNODE_RO_VALUE_STR, mrbfsNode->path);
 	nodeLocalStorage->tempSensorValue = calloc(1, TEMPERATURE_VALUE_BUFFER_SZ);
-	strcpy(nodeLocalStorage->tempSensorValue, "No Data\n");
 	nodeLocalStorage->file_tempSensor->value.valueStr = nodeLocalStorage->tempSensorValue;
 	
 	nodeLocalStorage->file_relativeHumidity = (*mrbfsNode->mrbfsFilesystemAddFile)("relative_humidity", FNODE_RO_VALUE_STR, mrbfsNode->path);
 	nodeLocalStorage->relativeHumidityValue = calloc(1, TEMPERATURE_VALUE_BUFFER_SZ);
-	strcpy(nodeLocalStorage->relativeHumidityValue, "No Data\n");
 	nodeLocalStorage->file_relativeHumidity->value.valueStr = nodeLocalStorage->relativeHumidityValue;
 	
 	nodeLocalStorage->file_busVoltage = (*mrbfsNode->mrbfsFilesystemAddFile)(nodeLocalStorage->isWireless?"battery_voltage":"mrbus_voltage", FNODE_RO_VALUE_STR, mrbfsNode->path);
 	nodeLocalStorage->busVoltageValue = calloc(1, TEMPERATURE_VALUE_BUFFER_SZ);
-	strcpy(nodeLocalStorage->busVoltageValue, "No Data\n");
 	nodeLocalStorage->file_busVoltage->value.valueStr = nodeLocalStorage->busVoltageValue;
 
+	nodeResetFilesNoData(mrbfsNode);
 	return (0);
 }
 
@@ -300,11 +330,13 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 	switch(rxPkt->pkt[MRBUS_PKT_TYPE])
 	{
 		case 'S':
-			{
+		{
 			int i=0, temperatureK;
 			double busVoltage = 0;
 			double temperature = 0.0;
 			double relHumidity = 0.0;
+
+			nodeLocalStorage->lastUpdated = currentTime;
 			
 			temperatureK = (((unsigned short)rxPkt->pkt[7])<<8) + rxPkt->pkt[8];
 			temperature = (double)temperatureK / 16.0;
@@ -341,7 +373,7 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 			busVoltage = ((double)rxPkt->pkt[10])/10.0;
 			snprintf(nodeLocalStorage->busVoltageValue, TEMPERATURE_VALUE_BUFFER_SZ-1, "%.*f%s", nodeLocalStorage->decimalPositions, busVoltage, nodeLocalStorage->suppressUnits?"":" V\n" );
 			nodeLocalStorage->file_busVoltage->updateTime = currentTime;
-			}
+		}
 			break;			
 	}
 
