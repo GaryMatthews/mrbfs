@@ -15,8 +15,19 @@
 #include <time.h>
 #include "mrbfs-module.h"
 #include "mrbfs-pktqueue.h"
+#include "node-helpers.h"
 
 #define MRBFS_NODE_DRIVER_NAME   "node-th"
+
+typedef enum
+{
+	SENSOR_UNKNOWN = 0,
+	SENSOR_DHT11,
+	SENSOR_DHT22,
+	SENSOR_TMP275,
+	SENSOR_CPS150
+} thSensorPackage;
+
 
 int mrbfsNodeDriverVersionCheck(int ifaceVersion)
 {
@@ -30,25 +41,25 @@ int mrbfsNodeDriverVersionCheck(int ifaceVersion)
 #define TEMPERATURE_VALUE_BUFFER_SZ 33
 
 
-typedef enum
-{
-	MRB_RTS_UNITS_C = 0,
-	MRB_RTS_UNITS_K = 1,
-	MRB_RTS_UNITS_F = 2,
-	MRB_RTS_UNITS_R = 3
-} MrbRtsTemperatureUnits;
+
 
 typedef struct
 {
 	UINT32 pktsReceived;
 	UINT32 value;
 	MRBFSFileNode* file_tempSensor;
-	MrbRtsTemperatureUnits units;
+	MRBTemperatureUnits tempUnits;
 	char* tempSensorValue;
 	MRBFSFileNode* file_relativeHumidity;
 	char* relativeHumidityValue;
 	MRBFSFileNode* file_busVoltage;
 	char* busVoltageValue;
+
+	MRBPressureUnits pressureUnits;
+	MRBFSFileNode* file_pressureSensor;
+	char* pressureSensorValue;
+	
+	
 	MRBFSFileNode* file_rxCounter;
 	MRBFSFileNode* file_rxPackets;
 	MRBFSFileNode* file_eepromNodeAddr;
@@ -60,29 +71,9 @@ typedef struct
 	MRBusPacketQueue rxq;
 	int timeout;
 	time_t lastUpdated;
+	thSensorPackage sensorPackage;
 } NodeLocalStorage;
 
-
-int nodeQueueTransmitPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* txPkt)
-{
-	int success = 0;
-	if (NULL == mrbfsNode->mrbfsNodeTxPacket)
-		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_INFO, "Node [%s] can't transmit - no mrbfsNodeTxPacket function defined", mrbfsNode->nodeName);
-	else
-	{
-		char txPktBuffer[256];
-		int i;
-
-		sprintf(txPktBuffer, ":%02X->%02X %02X", txPkt->pkt[MRBUS_PKT_SRC], txPkt->pkt[MRBUS_PKT_DEST], txPkt->pkt[MRBUS_PKT_TYPE]);
-		for (i=MRBUS_PKT_DATA; i<txPkt->pkt[MRBUS_PKT_LEN]; i++)
-			sprintf(txPktBuffer + strlen(txPktBuffer), " %02X", txPkt->pkt[i]);
-	
-		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_INFO, "Node [%s] sending packet [%s]", mrbfsNode->nodeName, txPktBuffer);
-		(*mrbfsNode->mrbfsNodeTxPacket)(txPkt);
-		return(0);
-	}
-	return(-1);
-}
 
 void mrbfsFileNodeWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int dataSz)
 {
@@ -178,21 +169,6 @@ size_t mrbfsFileNodeRead(MRBFSFileNode* mrbfsFileNode, char *buf, size_t size, o
 }
 
 
-
-const char* mrbfsNodeOptionGet(MRBFSBusNode* mrbfsNode, const char* nodeOptionKey, const char* defaultValue)
-{
-	int i;
-	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] - [%d] node options, looking for [%s]", mrbfsNode->nodeName, mrbfsNode->nodeOptions, nodeOptionKey);
-
-	for(i=0; i<mrbfsNode->nodeOptions; i++)
-	{
-		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] - node option [%d], comparing key [%s] to [%s]", mrbfsNode->nodeName, mrbfsNode->nodeOptions, nodeOptionKey, mrbfsNode->nodeOptionList[i].key);
-		if (0 == strcmp(nodeOptionKey, mrbfsNode->nodeOptionList[i].key))
-			return(mrbfsNode->nodeOptionList[i].value);
-	}
-	return(defaultValue);
-}
-
 void nodeResetFilesNoData(MRBFSBusNode* mrbfsNode)
 {
 	NodeLocalStorage* nodeLocalStorage = mrbfsNode->nodeLocalStorage;
@@ -222,6 +198,7 @@ int mrbfsNodeTick(MRBFSBusNode* mrbfsNode, time_t currentTime)
 int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 {
 	NodeLocalStorage* nodeLocalStorage = calloc(1, sizeof(NodeLocalStorage));
+	const char* sensorPkgStr;
 	int i;
 	int units = MRB_RTS_UNITS_C;
 	const char* unitsStr;
@@ -232,6 +209,7 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 
 	nodeLocalStorage->pktsReceived = 0;
 	nodeLocalStorage->lastUpdated = 0;
+	
 	nodeLocalStorage->file_rxCounter = (*mrbfsNode->mrbfsFilesystemAddFile)("rxCounter", FNODE_RW_VALUE_INT, mrbfsNode->path);
 	nodeLocalStorage->file_rxPackets = (*mrbfsNode->mrbfsFilesystemAddFile)("rxPackets", FNODE_RO_VALUE_STR, mrbfsNode->path);
 	nodeLocalStorage->file_eepromNodeAddr = (*mrbfsNode->mrbfsFilesystemAddFile)("eepromNodeAddr", FNODE_RO_VALUE_READBACK, mrbfsNode->path);
@@ -243,7 +221,7 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 	nodeLocalStorage->file_eepromNodeAddr->mrbfsFileNodeWrite = &mrbfsFileNodeWrite;
 	nodeLocalStorage->file_eepromNodeAddr->mrbfsFileNodeRead = &mrbfsFileNodeRead;
 	nodeLocalStorage->file_eepromNodeAddr->nodeLocalStorage = (void*)mrbfsNode;
-
+	
 	nodeLocalStorage->suppressUnits = 0;
 	if (0 == strcmp(mrbfsNodeOptionGet(mrbfsNode, "suppress_units", "no"), "yes"))
 		nodeLocalStorage->suppressUnits = 1;
@@ -256,28 +234,56 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 	if (0 == strcmp(mrbfsNodeOptionGet(mrbfsNode, "connection", "wired"), "wireless"))
 		nodeLocalStorage->isWireless = 1;
 
-	unitsStr = mrbfsNodeOptionGet(mrbfsNode, "temperature_units", "celsius");
-	if (0 == strcmp("celsius", unitsStr))
-		nodeLocalStorage->units = MRB_RTS_UNITS_C;
-	else if (0 == strcmp("fahrenheit", unitsStr))
-		nodeLocalStorage->units = MRB_RTS_UNITS_F;
-	else if (0 == strcmp("kelvin", unitsStr))
-		nodeLocalStorage->units = MRB_RTS_UNITS_K;
-	else if (0 == strcmp("rankine", unitsStr))
-		nodeLocalStorage->units = MRB_RTS_UNITS_R;
-	else
-		nodeLocalStorage->units = MRB_RTS_UNITS_C;
+	nodeLocalStorage->tempUnits = mrbfsNodeGetTemperatureUnits(mrbfsNode, "temperature_units");
+	nodeLocalStorage->pressureUnits = mrbfsNodeGetPressureUnits(mrbfsNode, "pressure_units");
 
-	nodeLocalStorage->file_tempSensor = (*mrbfsNode->mrbfsFilesystemAddFile)("temperature", FNODE_RO_VALUE_STR, mrbfsNode->path);
-	nodeLocalStorage->tempSensorValue = calloc(1, TEMPERATURE_VALUE_BUFFER_SZ);
-	nodeLocalStorage->file_tempSensor->value.valueStr = nodeLocalStorage->tempSensorValue;
-	
-	nodeLocalStorage->file_relativeHumidity = (*mrbfsNode->mrbfsFilesystemAddFile)("relative_humidity", FNODE_RO_VALUE_STR, mrbfsNode->path);
+
+
+	sensorPkgStr = mrbfsNodeOptionGet(mrbfsNode, "sensor_package", "DHT22");
+	if (0 == strcmp(sensorPkgStr, "DHT11"))
+		nodeLocalStorage->sensorPackage = SENSOR_DHT11;
+	else if (0 == strcmp(sensorPkgStr, "DHT22"))
+		nodeLocalStorage->sensorPackage = SENSOR_DHT22;
+	else (0 == strcmp(sensorPkgStr, "TMP275"))
+		nodeLocalStorage->sensorPackage = SENSOR_TMP275;		
+	else (0 == strcmp(sensorPkgStr, "CPS150"))
+		nodeLocalStorage->sensorPackage = SENSOR_CPS150;
+	else
+		nodeLocalStorage->sensorPackage = SENSOR_UNKNOWN;
+
+	// Allocate all storage, even if not used
+	nodeLocalStorage->pressureSensorValue = calloc(1, TEMPERATURE_VALUE_BUFFER_SZ);	
+	nodeLocalStorage->tempSensorValue = calloc(1, TEMPERATURE_VALUE_BUFFER_SZ);	
 	nodeLocalStorage->relativeHumidityValue = calloc(1, TEMPERATURE_VALUE_BUFFER_SZ);
-	nodeLocalStorage->file_relativeHumidity->value.valueStr = nodeLocalStorage->relativeHumidityValue;
+	nodeLocalStorage->busVoltageValue = calloc(1, TEMPERATURE_VALUE_BUFFER_SZ);	
 	
+	switch(sensorPackage)
+	{
+		case SENSOR_DHT11:
+		case SENSOR_DHT22:
+			nodeLocalStorage->file_relativeHumidity = (*mrbfsNode->mrbfsFilesystemAddFile)("relative_humidity", FNODE_RO_VALUE_STR, mrbfsNode->path);
+			nodeLocalStorage->file_relativeHumidity->value.valueStr = nodeLocalStorage->relativeHumidityValue;
+
+			nodeLocalStorage->file_tempSensor = (*mrbfsNode->mrbfsFilesystemAddFile)("temperature", FNODE_RO_VALUE_STR, mrbfsNode->path);
+			nodeLocalStorage->file_tempSensor->value.valueStr = nodeLocalStorage->tempSensorValue;
+			break;
+
+
+		case SENSOR_TMP275:
+			nodeLocalStorage->file_tempSensor = (*mrbfsNode->mrbfsFilesystemAddFile)("temperature", FNODE_RO_VALUE_STR, mrbfsNode->path);
+			nodeLocalStorage->file_tempSensor->value.valueStr = nodeLocalStorage->tempSensorValue;
+			break;
+			
+		case SENSOR_CPS150:
+			nodeLocalStorage->file_tempSensor = (*mrbfsNode->mrbfsFilesystemAddFile)("temperature", FNODE_RO_VALUE_STR, mrbfsNode->path);
+			nodeLocalStorage->file_tempSensor->value.valueStr = nodeLocalStorage->tempSensorValue;
+
+			nodeLocalStorage->file_pressureSensor = (*mrbfsNode->mrbfsFilesystemAddFile)("absolute_pressure", FNODE_RO_VALUE_STR, mrbfsNode->path);
+			nodeLocalStorage->file_pressureSensor->value.valueStr = nodeLocalStorage->pressureSensorValue;
+			break;
+	}
+
 	nodeLocalStorage->file_busVoltage = (*mrbfsNode->mrbfsFilesystemAddFile)(nodeLocalStorage->isWireless?"battery_voltage":"mrbus_voltage", FNODE_RO_VALUE_STR, mrbfsNode->path);
-	nodeLocalStorage->busVoltageValue = calloc(1, TEMPERATURE_VALUE_BUFFER_SZ);
 	nodeLocalStorage->file_busVoltage->value.valueStr = nodeLocalStorage->busVoltageValue;
 
 	nodeResetFilesNoData(mrbfsNode);
@@ -317,7 +323,11 @@ int trimNewlines(char* str, int trimval)
 // This function may be called simultaneously by multiple packet receivers.  Make sure anything affecting
 // the node as a whole is interlocked with mutexes.
 
-
+double mrbfsGetTempFrom16K(const UINT8* pktByte)
+{
+	int temperatureK = (((unsigned short)rxPkt->pkt[7])<<8) + rxPkt->pkt[8];
+	return((double)temperatureK / 16.0);
+}
 
 int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 {
@@ -335,11 +345,29 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 			double busVoltage = 0;
 			double temperature = 0.0;
 			double relHumidity = 0.0;
-
+			double pressure = 0.0;
 			nodeLocalStorage->lastUpdated = currentTime;
+
+			switch(sensorPackage)
+			{
+				case SENSOR_DHT11:
+				case SENSOR_DHT22:
+					temperature = mrbfsGetTempFrom16K(&rxPkt->pkt[7]);
+					relHumidity = ((double)rxPkt->pkt[9])/2.0;
+					snprintf(nodeLocalStorage->relativeHumidityValue, TEMPERATURE_VALUE_BUFFER_SZ-1, "%.*f%s", nodeLocalStorage->decimalPositions, relHumidity, nodeLocalStorage->suppressUnits?"":" %RH\n" );
+					nodeLocalStorage->file_relativeHumidity->updateTime = currentTime;					
+					break;
+
+				case SENSOR_TMP275:
+					temperature = mrbfsGetTempFrom16K(&rxPkt->pkt[7]);	
+					break;
 			
-			temperatureK = (((unsigned short)rxPkt->pkt[7])<<8) + rxPkt->pkt[8];
-			temperature = (double)temperatureK / 16.0;
+				case SENSOR_CPS150:
+					temperature = mrbfsGetTempFrom16K(&rxPkt->pkt[7]);
+					break;
+			}
+
+			
 			switch(nodeLocalStorage->units)
 			{
 				case MRB_RTS_UNITS_K:
@@ -365,10 +393,6 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 					break;
 			}
 			nodeLocalStorage->file_tempSensor->updateTime = currentTime;
-
-			relHumidity = ((double)rxPkt->pkt[9])/2.0;
-			snprintf(nodeLocalStorage->relativeHumidityValue, TEMPERATURE_VALUE_BUFFER_SZ-1, "%.*f%s", nodeLocalStorage->decimalPositions, relHumidity, nodeLocalStorage->suppressUnits?"":" %RH\n" );
-			nodeLocalStorage->file_relativeHumidity->updateTime = currentTime;
 			
 			busVoltage = ((double)rxPkt->pkt[10])/10.0;
 			snprintf(nodeLocalStorage->busVoltageValue, TEMPERATURE_VALUE_BUFFER_SZ-1, "%.*f%s", nodeLocalStorage->decimalPositions, busVoltage, nodeLocalStorage->suppressUnits?"":" V\n" );

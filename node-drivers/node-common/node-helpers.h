@@ -17,8 +17,10 @@ typedef enum
 	MRB_PRESSURE_BAR = 3
 } MRBPressureUnits;
 
-
+const char* mrbfsNodeOptionGet(MRBFSBusNode* mrbfsNode, const char* nodeOptionKey, const char* defaultValue);
+int mrbfsNodeQueueTransmitPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* txPkt);
 MRBTemperatureUnits mrbfsNodeGetTemperatureUnits(MRBFSNode* mrbfsNode, const char* optionName);
 MRBPressureUnits mrbfsNodeGetTemperatureUnits(MRBFSNode* mrbfsNode, const char* optionName);
+double mrbfsGetTempFrom16K(const UINT8* pktByte);
 
 #endif
