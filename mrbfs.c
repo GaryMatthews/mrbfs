@@ -342,7 +342,7 @@ int mrbfsRemoveBus(UINT8 busNumber)
 	}
 	
 	pthread_mutex_lock(&bus->busLock);
-	for(node=0; node<256; node++)
+	for(node=0; node<MRBFS_MAX_BUS_NODES; node++)
 	{
 		mrbfsRemoveNode(bus, node);
 	}
