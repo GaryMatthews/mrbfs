@@ -106,8 +106,8 @@ static int mrbfs_opt_proc(void *data, const char *arg, int key, struct fuse_args
 
 void mrbfsTicker()
 {
-	UINT32 i=0, busNumber=0, nodeNumber=0, timePktValid=0;
-	time_t currentTime=0, startTime = time(NULL);
+	UINT32 i=0, busNumber=0, nodeNumber=0;
+	time_t currentTime=0;
 	char buffer[256];
 	struct tm timeLocal;
 	
@@ -125,7 +125,9 @@ void mrbfsTicker()
 		currentTime = time(NULL);
 		localtime_r(&currentTime, &timeLocal);
 		
-		mrbfsLogMessage(MRBFS_LOG_INFO, "Ticking at %s [%d]", asctime_r(&timeLocal, buffer));
+		strftime(buffer, sizeof(buffer), "%Y-%b-%d %H:%M:%S", &timeLocal);
+		
+		mrbfsLogMessage(MRBFS_LOG_DEBUG, "Ticking at %s [%d]", buffer, currentTime);
 		
 		for(busNumber=0; busNumber<MRBFS_MAX_INTERFACES; busNumber++)
 		{
@@ -138,9 +140,12 @@ void mrbfsTicker()
 				MRBFSBusNode* node = bus->node[nodeNumber];
 				if (NULL == node || NULL == node->mrbfsNodeTick)
 					continue;
-				(*node->mrbfsNodeTick)((MRBFSBusNode*)node->nodeLocalStorage, currentTime);
+				mrbfsLogMessage(MRBFS_LOG_DEBUG, "Trying to call tick function, bus=[%d], node=[%02X]", busNumber, nodeNumber);
+				(*node->mrbfsNodeTick)((MRBFSBusNode*)node, currentTime);
 			}
 		}
+		mrbfsLogMessage(MRBFS_LOG_DEBUG, "Finished tick at %s [%d]", buffer, currentTime);
+		
 	}
 	
 	mrbfsLogMessage(MRBFS_LOG_INFO, "Ticker terminating");	
