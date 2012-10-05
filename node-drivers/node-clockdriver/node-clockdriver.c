@@ -149,12 +149,18 @@ void mrbfsFileNodeWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int data
 {
 	MRBFSBusNode* mrbfsNode = (MRBFSBusNode*)(mrbfsFileNode->nodeLocalStorage);
 	NodeLocalStorage* nodeLocalStorage = (NodeLocalStorage*)(mrbfsNode->nodeLocalStorage);
-
+	char writeBuffer[256];
+	
+	memset(writeBuffer, 0, sizeof(writeBuffer));
+	
+	memcpy(writeBuffer, data, dataSz);
+	
 	// The fastest way to see what file is getting written is to compare the FileNode pointers
 	// to files that we know about.
 	if (mrbfsFileNode == nodeLocalStorage->file_txInterval)
 	{
-		int i = atoi(data);
+		int i = atoi(writeBuffer);
+	
 		if (i < 0)
 		{
 			(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_INFO, "Node [%s] cannot set negative transmit interval, turning off tx", mrbfsNode->nodeName);
@@ -162,6 +168,7 @@ void mrbfsFileNodeWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int data
 		}
 		nodeLocalStorage->file_txInterval->value.valueInt = i;
 	}
+	
 }
 
 /*******************************************************
@@ -204,7 +211,9 @@ size_t mrbfsFileNodeRead(MRBFSFileNode* mrbfsFileNode, char *buf, size_t size, o
 	MRBusPacket pkt;
 	char responseBuffer[256] = "";
 	size_t len=0;
-	
+
+	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] responding to readback", mrbfsNode->nodeName);
+
 	if (mrbfsFileNode == nodeLocalStorage->file_lastTimeSent)
 	{
 		if (0 == nodeLocalStorage->lastUpdated)
@@ -323,9 +332,14 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 	// File "rxPackets" - the rxPackets file node will be a read-only string node that holds a log of the last 25
 	//  packets received.  It will be backed by a buffer in nodeLocalStorage.
 	nodeLocalStorage->file_lastTimeSent = (*mrbfsNode->mrbfsFilesystemAddFile)("last_time_sent", FNODE_RO_VALUE_READBACK, mrbfsNode->path);
+	nodeLocalStorage->file_lastTimeSent->mrbfsFileNodeRead = &mrbfsFileNodeRead; // Associate this node's mrbfsFileNodeWrite for read callbacks
+	nodeLocalStorage->file_lastTimeSent->nodeLocalStorage = (void*)mrbfsNode;
+	
 	nodeLocalStorage->file_txInterval = (*mrbfsNode->mrbfsFilesystemAddFile)("tx_interval", FNODE_RW_VALUE_INT, mrbfsNode->path);	
+	nodeLocalStorage->file_txInterval->mrbfsFileNodeWrite = &mrbfsFileNodeWrite;
 	nodeLocalStorage->file_txInterval->value.valueInt = atoi(mrbfsNodeOptionGet(mrbfsNode, "tx_interval", "5"));
-
+	nodeLocalStorage->file_txInterval->nodeLocalStorage = (void*)mrbfsNode;
+	
 	// Return 0 to indicate success
 	return (0);
 }
