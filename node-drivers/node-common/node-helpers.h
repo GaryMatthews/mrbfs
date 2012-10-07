@@ -14,13 +14,21 @@ typedef enum
 	MRB_PRESSURE_HPA = 0,
 	MRB_PRESSURE_KPA = 1,
 	MRB_PRESSURE_PSI = 2,
-	MRB_PRESSURE_BAR = 3
+	MRB_PRESSURE_BAR = 3,
+	MRB_PRESSURE_PA  = 4,
+	MRB_PRESSURE_TORR = 5,
+	MRB_PRESSURE_IN_H2O = 6,
+	MRB_PRESSURE_IN_HG = 7,
+	MRB_PRESSURE_STD_ATM = 8
+	
 } MRBPressureUnits;
 
 const char* mrbfsNodeOptionGet(MRBFSBusNode* mrbfsNode, const char* nodeOptionKey, const char* defaultValue);
 int mrbfsNodeQueueTransmitPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* txPkt);
-MRBTemperatureUnits mrbfsNodeGetTemperatureUnits(MRBFSNode* mrbfsNode, const char* optionName);
-MRBPressureUnits mrbfsNodeGetTemperatureUnits(MRBFSNode* mrbfsNode, const char* optionName);
-double mrbfsGetTempFrom16K(const UINT8* pktByte);
-
+MRBTemperatureUnits mrbfsNodeGetTemperatureUnits(MRBFSBusNode* mrbfsNode, const char* optionName);
+MRBPressureUnits mrbfsNodeGetPressureUnits(MRBFSBusNode* mrbfsNode, const char* optionName);
+double mrbfsGetTempFrom16K(const UINT8* pktByte, MRBTemperatureUnits units);
+const char* mrbfsGetTemperatureDisplayUnits(MRBTemperatureUnits units);
+double mrbfsGetPressureFromHPa(const UINT8* pktByte, MRBPressureUnits units);
+const char* mrbfsGetPressureDisplayUnits(MRBPressureUnits units);
 #endif

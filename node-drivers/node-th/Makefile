@@ -3,13 +3,13 @@
 
 ### Build options
 CC		=       gcc
-INCLUDES        =       -I. -I../../ -I../../libconfuse/src/
+INCLUDES        =       -I. -I../../ -I../../libconfuse/src/ -I../node-common/
 CFLAGS		=	-fPIC -shared -O2 $(INCLUDES)
 
 LDFLAGS         =
 BIN_TARGET	=	../../modules/node-th.so
 
-MODULE_SRC      =       $(shell find ./ -name "*.c" -print) ../../mrbfs-pktqueue.c
+MODULE_SRC      =       $(shell find ./ -name "*.c" -print) ../../mrbfs-pktqueue.c ../node-common/node-helpers.c
 MODULE_OBJ      =       $(MODULE_SRC:%.c=%.o)
 
 ### rts targets

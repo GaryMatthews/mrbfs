@@ -17,7 +17,7 @@
 #include "mrbfs-pktqueue.h"
 #include "node-helpers.h"
 
-MRBTemperatureUnits mrbfsNodeGetTemperatureUnits(MRBFSNode* mrbfsNode, const char* optionName)
+MRBTemperatureUnits mrbfsNodeGetTemperatureUnits(MRBFSBusNode* mrbfsNode, const char* optionName)
 {
 	MRBTemperatureUnits tempUnits = MRB_TEMPERATURE_UNITS_C;
 	const char* unitsStr = mrbfsNodeOptionGet(mrbfsNode, optionName, "celsius");
@@ -34,10 +34,10 @@ MRBTemperatureUnits mrbfsNodeGetTemperatureUnits(MRBFSNode* mrbfsNode, const cha
 }
 
 
-MRBPressureUnits mrbfsNodeGetTemperatureUnits(MRBFSNode* mrbfsNode, const char* optionName)
+MRBPressureUnits mrbfsNodeGetPressureUnits(MRBFSBusNode* mrbfsNode, const char* optionName)
 {
 	const char* unitsStr = mrbfsNodeOptionGet(mrbfsNode, optionName, "kPa");
-	MRBPressureUnits = MRB_PRESSURE_KPA;
+	MRBPressureUnits pressureUnits = MRB_PRESSURE_KPA;
 	if (0 == strcmp("hPa", unitsStr))
 		pressureUnits = MRB_PRESSURE_HPA;
 	else if (0 == strcmp("kPa", unitsStr))
@@ -46,14 +46,122 @@ MRBPressureUnits mrbfsNodeGetTemperatureUnits(MRBFSNode* mrbfsNode, const char* 
 		pressureUnits = MRB_PRESSURE_PSI;
 	else if (0 == strcmp("bar", unitsStr))
 		pressureUnits = MRB_PRESSURE_BAR;
+	else if (0 == strcmp("Pa", unitsStr))
+		pressureUnits = MRB_PRESSURE_PA;
+	else if (0 == strcmp("Torr", unitsStr))
+		pressureUnits = MRB_PRESSURE_TORR;
+	else if (0 == strcmp("inH2O", unitsStr))
+		pressureUnits = MRB_PRESSURE_IN_H2O;
+	else if (0 == strcmp("inHg", unitsStr))
+		pressureUnits = MRB_PRESSURE_IN_HG;
+	else if (0 == strcmp("atm", unitsStr))
+		pressureUnits = MRB_PRESSURE_STD_ATM;
 
 	return(pressureUnits);
 }
 
-double mrbfsGetTempFrom16K(const UINT8* pktByte)
+const char* mrbfsGetTemperatureDisplayUnits(MRBTemperatureUnits units)
 {
-	int temperatureK = (((unsigned short)rxPkt->pkt[0])<<8) + rxPkt->pkt[1];
-	return((double)temperatureK / 16.0);
+	switch(units)
+	{
+		case MRB_TEMPERATURE_UNITS_C:
+			return("C");
+		case MRB_TEMPERATURE_UNITS_F:
+			return("F");
+		case MRB_TEMPERATURE_UNITS_K:
+			return("K");
+		case MRB_TEMPERATURE_UNITS_R:
+			return("R");
+	}
+
+	return("Unk");
+}
+
+const char* mrbfsGetPressureDisplayUnits(MRBPressureUnits units)
+{
+	switch(units)
+	{
+		case MRB_PRESSURE_PA:
+			return("Pa");
+		case MRB_PRESSURE_HPA:
+			return("hPa");
+		case MRB_PRESSURE_KPA:
+			return("kPa");
+		case MRB_PRESSURE_PSI:
+			return("psi");
+		case MRB_PRESSURE_BAR:
+			return("bar");
+		case MRB_PRESSURE_TORR:
+			return("Torr");
+		case MRB_PRESSURE_STD_ATM:
+			return("atm");
+		case MRB_PRESSURE_IN_H2O:
+			return("inH2O");
+		case MRB_PRESSURE_IN_HG:
+			return("inHg");
+	}
+	return("Unk");
+}
+
+double mrbfsGetPressureFromHPa(const UINT8* pktByte, MRBPressureUnits units)
+{
+	double pressure = (double)((((unsigned short)pktByte[0])<<8) + (unsigned short)pktByte[1]);
+
+	switch(units)
+	{
+		case MRB_PRESSURE_PA:
+			return(pressure * 100.0);		
+		case MRB_PRESSURE_HPA:
+			return(pressure);
+		case MRB_PRESSURE_KPA:
+			return(pressure / 10.0);		
+		case MRB_PRESSURE_PSI:
+			return(pressure * 0.0145038);
+		case MRB_PRESSURE_BAR:
+			return(pressure * 1000.0);
+		case MRB_PRESSURE_TORR:
+			return(pressure * 100.0 / 133.3224);
+		case MRB_PRESSURE_STD_ATM:
+			return(pressure * 100.0 / 101325.0);
+		case MRB_PRESSURE_IN_H2O:
+			return(pressure * 0.4015);
+		case MRB_PRESSURE_IN_HG:
+			return(pressure * 100.0 / 3386.389);
+	}
+			
+	return(pressure);
+}
+
+double mrbfsGetTempFrom16K(const UINT8* pktByte, MRBTemperatureUnits units)
+{
+	int temperature16K = (((unsigned short)pktByte[0])<<8) + (unsigned short)pktByte[1];
+	double temperatureK = (double)temperature16K / 16.0;
+
+	switch(units)
+	{
+		case MRB_TEMPERATURE_UNITS_K:
+			// Do nothing
+			break;
+		case MRB_TEMPERATURE_UNITS_F:
+			temperatureK -= 273.15; // Convert to C, then to F
+			temperatureK = (temperatureK * 9.0) / 5.0;
+			temperatureK += 32.0;
+			break;
+
+		case MRB_TEMPERATURE_UNITS_C:
+			temperatureK -= 273.15;
+			break;
+
+		case MRB_TEMPERATURE_UNITS_R:
+			temperatureK = (temperatureK * 9.0) / 5.0;
+			break;
+
+		default:
+			temperatureK = 0.0;
+			break;
+	}
+	
+	return(temperatureK);
 }
 
 
