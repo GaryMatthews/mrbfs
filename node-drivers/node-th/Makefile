@@ -4,16 +4,17 @@
 ### Build options
 CC		=       gcc
 INCLUDES        =       -I. -I../../ -I../../libconfuse/src/ -I../node-common/
-CFLAGS		=	-fPIC -shared -O2 $(INCLUDES)
+CFLAGS		=	-fPIC -shared -O2 $(INCLUDES) -Wall
 
-LDFLAGS         =
+LDFLAGS         =	-lm
 BIN_TARGET	=	../../modules/node-th.so
 
-MODULE_SRC      =       $(shell find ./ -name "*.c" -print) ../../mrbfs-pktqueue.c ../node-common/node-helpers.c
+MODULE_SRC      =       $(shell find ./ -name "*.c" -print) ../../mrbfs-pktqueue.c ../node-common/node-helpers.c 
 MODULE_OBJ      =       $(MODULE_SRC:%.c=%.o)
 
 ### rts targets
-all:    $(BIN_TARGET)
+all:    $(MODULE_OBJ)
+	ld -shared -soname node-th -lm -o $(BIN_TARGET) -lc $(MODULE_OBJ)
 
 $(BIN_TARGET): $(MODULE_OBJ)
 	$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $(BIN_TARGET)
@@ -21,6 +22,7 @@ $(BIN_TARGET): $(MODULE_OBJ)
 clean: 
 	rm -f $(MODULE_OBJ)
 	rm -f *.o
+	rm -f ../node-common/*.o
 	rm -f *.core
 	rm -f *~
 	rm -f $(BIN_TARGET)

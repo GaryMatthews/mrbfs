@@ -30,5 +30,6 @@ MRBPressureUnits mrbfsNodeGetPressureUnits(MRBFSBusNode* mrbfsNode, const char* 
 double mrbfsGetTempFrom16K(const UINT8* pktByte, MRBTemperatureUnits units);
 const char* mrbfsGetTemperatureDisplayUnits(MRBTemperatureUnits units);
 double mrbfsGetPressureFromHPa(const UINT8* pktByte, MRBPressureUnits units);
+double mrbfsGetPressureFromHPaDouble(double pressure, MRBPressureUnits units);
 const char* mrbfsGetPressureDisplayUnits(MRBPressureUnits units);
 #endif

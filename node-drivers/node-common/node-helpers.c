@@ -103,10 +103,8 @@ const char* mrbfsGetPressureDisplayUnits(MRBPressureUnits units)
 	return("Unk");
 }
 
-double mrbfsGetPressureFromHPa(const UINT8* pktByte, MRBPressureUnits units)
+double mrbfsGetPressureFromHPaDouble(double pressure, MRBPressureUnits units)
 {
-	double pressure = (double)((((unsigned short)pktByte[0])<<8) + (unsigned short)pktByte[1]);
-
 	switch(units)
 	{
 		case MRB_PRESSURE_PA:
@@ -130,6 +128,12 @@ double mrbfsGetPressureFromHPa(const UINT8* pktByte, MRBPressureUnits units)
 	}
 			
 	return(pressure);
+}
+
+double mrbfsGetPressureFromHPa(const UINT8* pktByte, MRBPressureUnits units)
+{
+	double pressure = (double)((((unsigned short)pktByte[0])<<8) + (unsigned short)pktByte[1]);
+	return(mrbfsGetPressureFromHPaDouble(pressure, units));
 }
 
 double mrbfsGetTempFrom16K(const UINT8* pktByte, MRBTemperatureUnits units)
