@@ -175,6 +175,7 @@ void nodeResetFilesNoData(MRBFSBusNode* mrbfsNode)
 	NodeLocalStorage* nodeLocalStorage = mrbfsNode->nodeLocalStorage;
 	strcpy(nodeLocalStorage->tempSensorValue, "No Data\n");
 	strcpy(nodeLocalStorage->relativeHumidityValue, "No Data\n");
+	strcpy(nodeLocalStorage->pressureSensorValue, "No Data\n");	
 	strcpy(nodeLocalStorage->busVoltageValue, "No Data\n");
 }
 
@@ -372,9 +373,6 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 	{
 		case 'S':
 		{
-			int i=0;
-			double busVoltage = 0;
-
 			nodeLocalStorage->lastUpdated = currentTime;
 
 			switch(nodeLocalStorage->sensorPackage)
@@ -394,7 +392,7 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 			
 				case SENSOR_CPS150:
 					populateTempFile(nodeLocalStorage, mrbfsGetTempFrom16K(&rxPkt->pkt[7], nodeLocalStorage->tempUnits), currentTime);
-					populatePressureFile(nodeLocalStorage, mrbfsGetPressureFromHPa(&rxPkt->pkt[9], nodeLocalStorage->tempUnits), currentTime);
+					populatePressureFile(nodeLocalStorage, mrbfsGetPressureFromHPa(&rxPkt->pkt[11], nodeLocalStorage->pressureUnits), currentTime);
 					populateVoltageFile(nodeLocalStorage, ((double)rxPkt->pkt[10])/10.0, currentTime);
 					break;
 			}
