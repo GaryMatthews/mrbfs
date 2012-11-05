@@ -418,6 +418,8 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 	{
 		case 'S':
 			nodeLocalStorage->lastUpdated = currentTime;
+			nodeLocalStorage->file_wiredPackets->updateTime = currentTime;
+			nodeLocalStorage->file_wirelessPackets->updateTime = currentTime;
 			nodeLocalStorage->file_wiredPackets->value.valueInt = pktToUint32(rxPkt->pkt + 6);
 			nodeLocalStorage->file_wirelessPackets->value.valueInt = pktToUint32(rxPkt->pkt + 10);
 			populateVoltageFile(nodeLocalStorage, ((double)rxPkt->pkt[14])/10.0, currentTime);
