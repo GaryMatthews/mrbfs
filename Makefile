@@ -25,6 +25,7 @@ build_drivers:
 	make -C node-drivers/node-bd42
 	make -C node-drivers/node-rts	
 	make -C node-drivers/node-th
+	make -C node-drivers/node-ap
 	make -C node-drivers/node-clockdriver
 
 clean:
