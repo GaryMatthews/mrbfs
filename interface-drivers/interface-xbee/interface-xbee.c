@@ -20,11 +20,20 @@
 
 typedef struct
 {
+	int dBm;
+	time_t lastUpdate;
+} NodeRxRSSI;
+
+typedef struct
+{
 	UINT32 pktsReceived;
 	MRBFSFileNode* file_pktCounter;
 	MRBFSFileNode* file_pktLog;
+	MRBFSFileNode* file_nodeRSSI;
 	char pktLogStr[RX_PKT_BUFFER_SZ];
 	MRBusPacketQueue txq;
+	NodeRxRSSI rssi[256];
+	char* nodeRSSIStr;
 } NodeLocalStorage;
 
 
@@ -39,6 +48,7 @@ int mrbfsInterfaceDriverVersionCheck(int ifaceVersion)
 
 static void mrbfsCI2SerialClose(int fd)
 {
+	return;
 }
 
 static int mrbfsCI2SerialOpen(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
@@ -90,9 +100,13 @@ void mrbfsInterfaceDriverInit(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 	mrbfsInterfaceDriver->nodeLocalStorage = (void*)nodeLocalStorage;
 
 	nodeLocalStorage->file_pktCounter = (*mrbfsInterfaceDriver->mrbfsFilesystemAddFile)("pktCounter", FNODE_RO_VALUE_INT, mrbfsInterfaceDriver->path);
-	nodeLocalStorage->file_pktLog = (*mrbfsInterfaceDriver->mrbfsFilesystemAddFile)("pktLog", FNODE_RO_VALUE_STR, mrbfsInterfaceDriver->path);
 
+	nodeLocalStorage->file_pktLog = (*mrbfsInterfaceDriver->mrbfsFilesystemAddFile)("pktLog", FNODE_RO_VALUE_STR, mrbfsInterfaceDriver->path);
 	nodeLocalStorage->file_pktLog->value.valueStr = nodeLocalStorage->pktLogStr;
+
+	nodeLocalStorage->file_nodeRSSI = (*mrbfsInterfaceDriver->mrbfsFilesystemAddFile)("pktLog", FNODE_RO_VALUE_STR, mrbfsInterfaceDriver->path);
+	nodeLocalStorage->file_nodeRSSI->value.valueStr = nodeLocalStorage->nodeRSSIStr;
+
 	mrbusPacketQueueInitialize(&nodeLocalStorage->txq);
 }
 
@@ -132,6 +146,9 @@ void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 	struct timeval timeout;
 	int processingPacket=0;
 	int fd = -1, nbytes=0, i=0;	
+	unsigned int expectedPktLen = 0;
+	unsigned int escapeNextByte = 0;
+	
 
 	(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface [%s] confirms startup", mrbfsInterfaceDriver->interfaceName);
 
@@ -145,90 +162,135 @@ void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
       usleep(1000);
       while ((nbytes = read(fd, incomingByte, 1)) > 0)
       {
-        (*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface [%s] got byte [0x%02X]", mrbfsInterfaceDriver->interfaceName, incomingByte[0]);
+			(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface [%s] got byte [0x%02X]", mrbfsInterfaceDriver->interfaceName, incomingByte[0]);
 
          switch(incomingByte[0])
          {
-            case 0x00:
-            case ' ': 
-            case 0x0A:
-               break;
-
-            case 0x0D:
-               // Try to parse whatever's in there
-               if ('P' == buffer[0])
-               {
-						time_t currentTime = time(NULL);
-                  // It's a packet
-						// Give it back to the control thread
-						MRBusPacket rxPkt;
-						UINT8* ptr = buffer+2;
-						memset(&rxPkt, 0, sizeof(MRBusPacket));
-						rxPkt.bus = mrbfsInterfaceDriver->bus;
-						rxPkt.len = (bufptr - ptr)/2;
-						for(i=0; i<rxPkt.len; i++, ptr+=2)
-						{
-							char hexByte[3];
-							hexByte[2] = 0;
-							memcpy(hexByte, ptr, 2);
-							rxPkt.pkt[i] = strtol(hexByte, NULL, 16);
-						}
-						(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Interface [%s] got packet [%s], txq depth=[%d]", mrbfsInterfaceDriver->interfaceName, buffer+2, mrbusPacketQueueDepth(&nodeLocalStorage->txq));
-
-						// Store the packet in the receive queue
-						{
-							char *newStart = nodeLocalStorage->pktLogStr;
-							size_t rxPacketLen = strlen(nodeLocalStorage->pktLogStr), newLen=rxPacketLen, newRemaining=RX_PKT_BUFFER_SZ-rxPacketLen;
-							char timeString[64];
-							char newPacket[100];
-							int b;
-							size_t timeSize=0;
-							struct tm pktTimeTM;
-
-							localtime_r(&currentTime, &pktTimeTM);
-							memset(newPacket, 0, sizeof(newPacket));
-							strftime(newPacket, sizeof(newPacket), "[%Y%m%d %H%M%S] R ", &pktTimeTM);
-	
-							for(b=0; b<rxPkt.len; b++)
-								sprintf(newPacket + 20 + b*3, "%02X ", rxPkt.pkt[b]);
-							*(newPacket + 20 + b*3-1) = '\n';
-							*(newPacket + 20 + b*3) = 0;
-							newLen = 20 + b*3;
-
-							// Trim rear of existing string
-							trimNewlines(nodeLocalStorage->pktLogStr, 511);
-
-							memmove(nodeLocalStorage->pktLogStr + newLen, nodeLocalStorage->pktLogStr, strlen(nodeLocalStorage->pktLogStr));
-							memcpy(nodeLocalStorage->pktLogStr, newPacket, newLen);
-							nodeLocalStorage->file_pktLog->updateTime = currentTime;
-
-							nodeLocalStorage->file_pktCounter->updateTime = currentTime;
-							nodeLocalStorage->file_pktCounter->value.valueInt = ++nodeLocalStorage->pktsReceived;
-						}
-						(*mrbfsInterfaceDriver->mrbfsPacketReceive)(&rxPkt);
-               }
-					else
-					{
-						(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Interface [%s] got non-packet response [%s]", mrbfsInterfaceDriver->interfaceName, buffer);
-					}
-
-
+            case 0x7E:
+					// Start of API frame
                memset(buffer, 0, sizeof(buffer));
                bufptr = buffer;
-					processingPacket = 0;
-
+               *bufptr++ = incomingByte[0];               
+					processingPacket = 1;
+					expectedPktLen = 0;
+					escapeNextByte = 0;
+					(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface [%s] starting packet parse on 0x7E", mrbfsInterfaceDriver->interfaceName);
                break;
-
+               
+				case 0x7D:
+					// Escape character
+					(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface [%s] setting escape", mrbfsInterfaceDriver->interfaceName);
+					escapeNextByte = 1;
+					break;
+					
             default:
+					if (escapeNextByte)
+						incomingByte[0] ^= 0x20;
+					escapeNextByte = 0;
+
 					processingPacket = 1;
                *bufptr++ = incomingByte[0];
                if (bufptr >= buffer + sizeof(buffer))
                {
-                processingPacket = 0;
-                bufptr = buffer;
+						processingPacket = 0;
+						memset(buffer, 0, sizeof(buffer));	                
+						bufptr = buffer;
+						break;
                }
-               break;
-         }
+
+		        (*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface [%s] buffer len is %d, looking for %d", mrbfsInterfaceDriver->interfaceName, bufptr - buffer, expectedPktLen);
+
+					if (3 == (bufptr - buffer))
+						expectedPktLen = (((unsigned int)buffer[1])<<8) + buffer[2] + 4; // length is 3 bytes of header + 1 byte of check + data len
+
+					if ((bufptr - buffer) == expectedPktLen) 
+					{
+						// Theoretical end of packet
+						unsigned char pktChecksum = 0;
+						for (i=3; i<expectedPktLen; i++)
+							pktChecksum += buffer[i];
+						
+						if (0xFF != pktChecksum)
+						{
+							(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface [%s] got pkt with bad checksum - actual=0x%02X rcvd=0x%02X", mrbfsInterfaceDriver->interfaceName, pktChecksum, buffer[expectedPktLen-1]);
+						}
+						else
+						{
+							unsigned int pktDataOffset = 8;
+							// Finished packet, good checksum
+							(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Interface [%s] got pkt with good checksum, API frame type 0x%02X", mrbfsInterfaceDriver->interfaceName, buffer[3]);
+							
+							switch(buffer[3]) // Handle different API frame types
+							{
+								// Various packet receive frames, based on address type
+								case 0x80: // 64 bit addressing frame
+									pktDataOffset = 14;
+									// Intentional fall-through
+								case 0x81: // 16 bit addressing frame
+									{
+				                  // It's a data packet
+										// Give it back to the control thread
+										time_t currentTime = time(NULL);
+										MRBusPacket rxPkt;
+
+										memset(&rxPkt, 0, sizeof(MRBusPacket));
+										rxPkt.bus = mrbfsInterfaceDriver->bus;
+										rxPkt.len = buffer[pktDataOffset + MRBUS_PKT_LEN];
+										for(i=0; i<rxPkt.len; i++)
+											rxPkt.pkt[i] = buffer[pktDataOffset + i];
+										
+										nodeLocalStorage->rssi[buffer[pktDataOffset + MRBUS_PKT_SRC]].dBm = -(buffer[pktDataOffset - 2]);
+										nodeLocalStorage->rssi[buffer[pktDataOffset + MRBUS_PKT_SRC]].lastUpdate = currentTime;
+										
+										// Store the packet in the receive queue
+										{
+											char *newStart = nodeLocalStorage->pktLogStr;
+											size_t rxPacketLen = strlen(nodeLocalStorage->pktLogStr), newLen=rxPacketLen, newRemaining=RX_PKT_BUFFER_SZ-rxPacketLen;
+											char timeString[64];
+											char newPacket[100];
+											int b;
+											size_t timeSize=0;
+											struct tm pktTimeTM;
+
+											localtime_r(&currentTime, &pktTimeTM);
+											memset(newPacket, 0, sizeof(newPacket));
+											strftime(newPacket, sizeof(newPacket), "[%Y%m%d %H%M%S] R ", &pktTimeTM);
+	
+											for(b=0; b<rxPkt.len; b++)
+												sprintf(newPacket + 20 + b*3, "%02X ", rxPkt.pkt[b]);
+											*(newPacket + 20 + b*3-1) = '\n';
+											*(newPacket + 20 + b*3) = 0;
+											newLen = 20 + b*3;
+
+											// Trim rear of existing string
+											trimNewlines(nodeLocalStorage->pktLogStr, 511);
+
+											memmove(nodeLocalStorage->pktLogStr + newLen, nodeLocalStorage->pktLogStr, strlen(nodeLocalStorage->pktLogStr));
+											memcpy(nodeLocalStorage->pktLogStr, newPacket, newLen);
+											nodeLocalStorage->file_pktLog->updateTime = currentTime;
+
+											nodeLocalStorage->file_pktCounter->updateTime = currentTime;
+											nodeLocalStorage->file_pktCounter->value.valueInt = ++nodeLocalStorage->pktsReceived;
+										}
+										(*mrbfsInterfaceDriver->mrbfsPacketReceive)(&rxPkt);											
+											
+											
+									}
+									break;
+								
+								default:
+									(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Interface [%s] got API frame 0x%02X, ignoring", mrbfsInterfaceDriver->interfaceName, buffer[3]);
+									break;
+							}
+							
+						}
+						memset(buffer, 0, sizeof(buffer));
+						bufptr = buffer;
+						expectedPktLen = 0;
+						processingPacket = 0;
+					}
+					break;
+				}
       }
 		if (!processingPacket && mrbusPacketQueueDepth(&nodeLocalStorage->txq) )
 		{
@@ -241,12 +303,13 @@ void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 				sprintf(txPktBuffer + strlen(txPktBuffer), " %02X", txPkt.pkt[i]);
 			sprintf(txPktBuffer + strlen(txPktBuffer), ";\x0D");
 			(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface driver [%s] transmitting %d bytes", mrbfsInterfaceDriver->interfaceName, strlen(txPktBuffer)); 
-			write(fd, txPktBuffer, strlen(txPktBuffer));
+// FIXME: Put transmit framing in here
+//			write(fd, txPktBuffer, strlen(txPktBuffer));
 		}
 
    }
    
-	(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface driver [%s] terminating", mrbfsInterfaceDriver->interfaceName);   
+	(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface driver [%s] terminating", mrbfsInterfaceDriver->interfaceName);
 	phtread_exit(NULL);
 }
 

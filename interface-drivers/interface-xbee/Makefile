@@ -13,7 +13,8 @@ MODULE_SRC      =       $(shell find ./ -name "*.c" -print) ../../mrbfs-pktqueue
 MODULE_OBJ      =       $(MODULE_SRC:%.c=%.o)
 
 ### generic targets
-all:    $(BIN_TARGET)
+all:	$(MODULE_OBJ)
+	ld -shared -soname node-th -lm -o $(BIN_TARGET) -lc $(MODULE_OBJ)
 
 $(BIN_TARGET): $(MODULE_OBJ)
 	$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $(BIN_TARGET)
