@@ -143,6 +143,57 @@ static int mrbfsCI2SerialOpen(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 	return(fd);
 }
 
+size_t mrbfsFileNodeRead(MRBFSFileNode* mrbfsFileNode, char *buf, size_t size, off_t offset)
+{
+	MRBFSInterfaceDriver* mrbfsNode = (MRBFSInterfaceDriver*)(mrbfsFileNode->nodeLocalStorage);
+	NodeLocalStorage* nodeLocalStorage = (NodeLocalStorage*)(mrbfsNode->nodeLocalStorage);
+	MRBusPacket pkt;
+	int timeout = 0;
+	int foundResponse = 0;
+	char *responseBuffer = NULL;
+	char *respBufferPtr = NULL;
+	size_t len=0;
+
+	if (mrbfsFileNode == nodeLocalStorage->file_nodeRSSI)
+	{
+		responseBuffer = (char*)alloca(20 * 256); // Enough for any/all RSSI nodes at 14 bytes per
+		if (NULL != responseBuffer)
+		{
+			uint32_t i = 0;
+			
+			respBufferPtr = responseBuffer;
+			
+			for(i=0; i < 0xFF; i++)
+			{
+				if (0 != nodeLocalStorage->rssi[i].lastUpdate)
+				{
+					respBufferPtr += sprintf(respBufferPtr, "0x%02X: %d dBm\n", (unsigned int)i, nodeLocalStorage->rssi[i].dBm);
+				}
+			}
+		}
+		
+	}
+
+	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Interface [%s] responding to readback on [%s] with [%s]", mrbfsNode->interfaceName, mrbfsFileNode->fileName, responseBuffer);
+
+	// This is common read() code that takes whatever's in responseBuffer and puts it into the buffer being
+	// given to us by the filesystem
+	if (NULL != responseBuffer)
+		len = strlen(responseBuffer);
+	else
+		len = 0;
+	if (offset < len) 
+	{
+		if (offset + size > len)
+			size = len - offset;
+		memcpy(buf, responseBuffer + offset, size);
+	} else
+		size = 0;		
+
+	return(size);
+}
+
+
 void mrbfsInterfaceDriverInit(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 {
 	NodeLocalStorage* nodeLocalStorage = calloc(1, sizeof(NodeLocalStorage));
@@ -153,9 +204,11 @@ void mrbfsInterfaceDriverInit(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 	nodeLocalStorage->file_pktLog = (*mrbfsInterfaceDriver->mrbfsFilesystemAddFile)("pktLog", FNODE_RO_VALUE_STR, mrbfsInterfaceDriver->path);
 	nodeLocalStorage->file_pktLog->value.valueStr = nodeLocalStorage->pktLogStr;
 
-	nodeLocalStorage->file_nodeRSSI = (*mrbfsInterfaceDriver->mrbfsFilesystemAddFile)("rssi", FNODE_RO_VALUE_STR, mrbfsInterfaceDriver->path);
+	nodeLocalStorage->file_nodeRSSI = (*mrbfsInterfaceDriver->mrbfsFilesystemAddFile)("rssi", FNODE_RO_VALUE_READBACK, mrbfsInterfaceDriver->path);
+	nodeLocalStorage->file_nodeRSSI->nodeLocalStorage = (void*)mrbfsInterfaceDriver;  // Associate this node's memory with the filenode's local storage
 	nodeLocalStorage->file_nodeRSSI->value.valueStr = nodeLocalStorage->nodeRSSIStr;
-
+	nodeLocalStorage->file_nodeRSSI->mrbfsFileNodeRead = &mrbfsFileNodeRead;
+	
 	mrbusPacketQueueInitialize(&nodeLocalStorage->txq);
 }
 
