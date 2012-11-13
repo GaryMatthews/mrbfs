@@ -36,7 +36,56 @@ typedef struct
 	char* nodeRSSIStr;
 } NodeLocalStorage;
 
+const uint8_t MRBus_CRC16_HighTable[16] =
+{
+	0x00, 0xA0, 0xE0, 0x40, 0x60, 0xC0, 0x80, 0x20,
+	0xC0, 0x60, 0x20, 0x80, 0xA0, 0x00, 0x40, 0xE0
+};
+const uint8_t MRBus_CRC16_LowTable[16] =
+{
+	0x00, 0x01, 0x03, 0x02, 0x07, 0x06, 0x04, 0x05,
+	0x0E, 0x0F, 0x0D, 0x0C, 0x09, 0x08, 0x0A, 0x0B
+};
 
+uint16_t mrbusCRC16Update(uint16_t crc, uint8_t a)
+{
+	uint8_t t;
+	uint8_t i = 0;
+
+	uint8_t W;
+	uint8_t crc16_high = (crc >> 8) & 0xFF;
+	uint8_t crc16_low = crc & 0xFF;
+
+	while (i < 2)
+	{
+		if (i)
+		{
+			W = ((crc16_high << 4) & 0xF0) | ((crc16_high >> 4) & 0x0F);
+			W = W ^ a;
+			W = W & 0x0F;
+			t = W;
+		}
+		else
+		{
+			W = crc16_high;
+			W = W ^ a;
+			W = W & 0xF0;
+			t = W;
+			t = ((t << 4) & 0xF0) | ((t >> 4) & 0x0F);
+		}
+
+		crc16_high = crc16_high << 4; 
+		crc16_high |= (crc16_low >> 4);
+		crc16_low = crc16_low << 4;
+
+		crc16_high = crc16_high ^ MRBus_CRC16_HighTable[t];
+		crc16_low = crc16_low ^ MRBus_CRC16_LowTable[t];
+
+		i++;
+	}
+
+	return ( ((crc16_high << 8) & 0xFF00) + crc16_low );
+}
 
 
 int mrbfsInterfaceDriverVersionCheck(int ifaceVersion)
@@ -104,7 +153,7 @@ void mrbfsInterfaceDriverInit(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 	nodeLocalStorage->file_pktLog = (*mrbfsInterfaceDriver->mrbfsFilesystemAddFile)("pktLog", FNODE_RO_VALUE_STR, mrbfsInterfaceDriver->path);
 	nodeLocalStorage->file_pktLog->value.valueStr = nodeLocalStorage->pktLogStr;
 
-	nodeLocalStorage->file_nodeRSSI = (*mrbfsInterfaceDriver->mrbfsFilesystemAddFile)("pktLog", FNODE_RO_VALUE_STR, mrbfsInterfaceDriver->path);
+	nodeLocalStorage->file_nodeRSSI = (*mrbfsInterfaceDriver->mrbfsFilesystemAddFile)("rssi", FNODE_RO_VALUE_STR, mrbfsInterfaceDriver->path);
 	nodeLocalStorage->file_nodeRSSI->value.valueStr = nodeLocalStorage->nodeRSSIStr;
 
 	mrbusPacketQueueInitialize(&nodeLocalStorage->txq);
@@ -136,18 +185,18 @@ int trimNewlines(char* str, int trimval)
 
 void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 {
-	UINT8 buffer[256];
-	UINT8 *bufptr;      // Current char in buffer 
-   UINT8 pktBuf[256];
-   UINT8 incomingByte[2];
+	uint8_t buffer[256];
+	uint8_t *bufptr;      // Current char in buffer 
+   uint8_t pktBuf[256];
+   uint8_t incomingByte[2];
 	const char* device="/dev/ttyUSB0";
 	NodeLocalStorage* nodeLocalStorage = (NodeLocalStorage*)mrbfsInterfaceDriver->nodeLocalStorage;
 	struct termios options;
 	struct timeval timeout;
 	int processingPacket=0;
 	int fd = -1, nbytes=0, i=0;	
-	unsigned int expectedPktLen = 0;
-	unsigned int escapeNextByte = 0;
+	uint32_t expectedPktLen = 0;
+	uint8_t escapeNextByte = 0;
 	
 
 	(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface [%s] confirms startup", mrbfsInterfaceDriver->interfaceName);
@@ -292,19 +341,79 @@ void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 					break;
 				}
       }
+
 		if (!processingPacket && mrbusPacketQueueDepth(&nodeLocalStorage->txq) )
 		{
 			MRBusPacket txPkt;
-			UINT8 txPktBuffer[32];
-			UINT8 txPktBufferLen=0;
+			uint8_t txPktBuffer[32];
+			uint8_t txPktBufferEscaped[64];
+			uint8_t *txPktPtr, *txPktEscapedPtr;
+			uint8_t txPktLen=0, txPktLenWithEscapes=0;
+			uint16_t crc16_value = 0;
+			uint8_t xbeeChecksum = 0;
+			uint32_t i = 0;
+			
+
+			
 			mrbusPacketQueuePop(&nodeLocalStorage->txq, &txPkt);
-			sprintf(txPktBuffer, ":%02X->%02X %02X", txPkt.pkt[MRBUS_PKT_SRC], txPkt.pkt[MRBUS_PKT_DEST], txPkt.pkt[MRBUS_PKT_TYPE]);
-			for (i=MRBUS_PKT_DATA; i<txPkt.pkt[MRBUS_PKT_LEN]; i++)
-				sprintf(txPktBuffer + strlen(txPktBuffer), " %02X", txPkt.pkt[i]);
-			sprintf(txPktBuffer + strlen(txPktBuffer), ";\x0D");
-			(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface driver [%s] transmitting %d bytes", mrbfsInterfaceDriver->interfaceName, strlen(txPktBuffer)); 
-// FIXME: Put transmit framing in here
-//			write(fd, txPktBuffer, strlen(txPktBuffer));
+
+			// First, calculate MRBus CRC16 
+		   for (i = 0; i < txPkt.pkt[MRBUS_PKT_LEN]; i++)
+			{
+		      if ((i != MRBUS_PKT_CRC_H) && (i != MRBUS_PKT_CRC_L))
+		         crc16_value = mrbusCRC16Update(crc16_value, txPkt.pkt[i]);
+			}			
+			txPkt.pkt[MRBUS_PKT_CRC_L] = (crc16_value & 0xFF);
+			txPkt.pkt[MRBUS_PKT_CRC_H] = ((crc16_value >> 8) & 0xFF);			
+
+			// Now figure out the length of the data segment, before escaping
+			txPktLen = txPkt.pkt[MRBUS_PKT_LEN] + 4; 
+
+			txPktPtr = txPktBuffer;
+			memset(txPktBuffer, 0, sizeof(txPktBuffer));
+			
+			*txPktPtr++ = 0x7E; // 0 - Start 
+			*txPktPtr++ = 0xFF & (txPktLen>>8);  // 1 - Len MSB
+			*txPktPtr++ = 0xFF & txPktLen; // 2 - Len LSB
+			*txPktPtr++ = 0x01;  // 3 - API being called - transmit by 16 bit address
+			*txPktPtr++ = 0xFF;  // 4 - MSB of dest address - broadcast 0xFFFF
+			*txPktPtr++ = 0xFF;  // 5 - LSB of dest address - broadcast 0xFFFF
+			*txPktPtr++ = 0x00; 	// 6 - Transmit options
+
+			// Copy over actual packet			
+			for(i=0; i<txPkt.pkt[MRBUS_PKT_LEN]; i++)
+				*txPktPtr++ = txPkt.pkt[i];
+			
+			// Add up checksum
+			for(i=3; i<(txPktPtr - txPktBuffer); i++)
+				xbeeChecksum += txPktBuffer[i];
+
+			xbeeChecksum = 0xFF - xbeeChecksum;
+			*txPktPtr++ = xbeeChecksum;
+			
+			txPktEscapedPtr = txPktBufferEscaped;
+			memset(txPktBufferEscaped, 0, sizeof(txPktBufferEscaped));
+			
+			for(i=0; i<(txPktPtr - txPktBuffer); i++)
+			{
+				switch(txPktBuffer[i])
+				{
+					case 0x7E:
+					case 0x7D:
+					case 0x11:
+					case 0x13:
+						*txPktEscapedPtr++ = 0x7D;
+						*txPktEscapedPtr++ = 0x20 ^ txPktBuffer[i];
+						break;
+					
+					default:
+						*txPktEscapedPtr++ = txPktBuffer[i];
+						break;
+				}
+			}
+
+			(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface driver [%s] transmitting %d bytes", mrbfsInterfaceDriver->interfaceName, txPktEscapedPtr - txPktBufferEscaped); 
+			write(fd, txPktBufferEscaped, txPktEscapedPtr - txPktBufferEscaped);
 		}
 
    }
