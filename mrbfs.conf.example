@@ -9,6 +9,15 @@ module-directory = "/home/ndholmes/data/mrbus/mrbfs/modules"
 #	interface-address = "0xFE"
 #}
 
+#interface xbee-explorer
+#{
+#   bus = 0
+#   driver = "interface-xbee.so"
+#   port = "/dev/ttyUSB0"
+#   interface-address = "0xFE"
+#}
+
+
 interface dummy
 {
 	bus = 0
@@ -16,12 +25,14 @@ interface dummy
 	interface-address = "0xFE"
 }
 
-clock realtime
-{
 
-
-}
-
+#node master-clock
+#{
+#   bus = 0
+#   driver = "node-clockdriver.so"
+#   address = "0xFD"
+#   option tx_interval { value = "3" }
+#}
 
 node mrb-rts
 {
