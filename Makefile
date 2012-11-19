@@ -21,6 +21,7 @@ build_drivers:
 	mkdir -p modules
 	make -C interface-drivers/interface-ci2
 	make -C interface-drivers/interface-dummy
+	make -C interface-drivers/interface-xbee
 	make -C node-drivers/node-generic
 	make -C node-drivers/node-bd42
 	make -C node-drivers/node-rts	
@@ -34,6 +35,7 @@ clean:
 	rm -f ./modules/*.so
 	make -C interface-drivers/interface-ci2 clean
 	make -C interface-drivers/interface-dummy clean
+	make -C interface-drivers/interface-xbee clean
 	make -C node-drivers/node-generic clean
 	make -C node-drivers/node-bd42 clean
 	make -C node-drivers/node-rts clean

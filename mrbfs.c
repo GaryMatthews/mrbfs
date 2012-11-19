@@ -11,6 +11,7 @@
 #include <termios.h>
 #include <stdio.h>
 #include <pthread.h>
+#include <signal.h>
 #include <unistd.h>
 #define FUSE_USE_VERSION 26
 #include <fuse.h>
@@ -193,6 +194,15 @@ void mrbfsSingleInitConfig()
 	}
 }
 
+void mrbfsSighup(int sig)
+{
+	char buffer[256];
+	sprintf(buffer, "Got signal %d, dying...\n", sig);
+	perror(buffer);
+	exit(1);
+
+}
+
 int main(int argc, char *argv[])
 {
 	struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
@@ -285,6 +295,8 @@ int main(int argc, char *argv[])
 	
 	mrbfsLogMessage(MRBFS_LOG_INFO, "Starting MRBFS 1 second ticker");	
 	mrbfsStartTicker();
+
+	signal(SIGHUP, mrbfsSighup);
 	
 	mrbfsLogMessage(MRBFS_LOG_INFO, "Starting MRBFS fuse main loop");
 	if (multithreaded)
@@ -360,8 +372,178 @@ int mrbfsRemoveBus(UINT8 busNumber)
 	mrbfsLogMessage(MRBFS_LOG_INFO, "Bus [%d] successfully removed", busNumber);
 	return(0);
 }
+	
+static int mrbfsIsValidPacketString(const char* pktStr, MRBusPacket* txPkt)
+{
+	UINT8 isValid = 0;
+	UINT8 pktLen = 6; // Base len - S+D+CRCL+CRCH+LEN+TYPE
+	char hexPair[3];
+	char* endPtr;
+	const char* pktPtr;
+	//           0123456789
+	// Format is SS->DD D0 D1 D2 D3 ...
+	// This is total crap parsing code that should be replaced with regexs by a competent 
+	// programmer.  However, today I just want this to work, so...
+	
+	// Too short or no src/dest sep
+	if (strlen(pktStr) < 9 || '-' != pktStr[2] || '>' != pktStr[3])
+	{
+		mrbfsLogMessage(MRBFS_LOG_ERROR, "Packet [%s] doesn't pass length or src/dest separator tests", pktStr);
+		return(0);
+	}
 
+	memset(hexPair, 0, sizeof(hexPair));
+	strncpy(hexPair, pktStr + 0, 2);
+	txPkt->pkt[MRBUS_PKT_SRC] = strtol(hexPair, &endPtr, 16);
+	if (endPtr != hexPair + 2)
+	{
+		mrbfsLogMessage(MRBFS_LOG_ERROR, "Packet [%s] doesn't pass src addr test", pktStr);
+		return(0);
+	}
 
+	
+	strncpy(hexPair, pktStr + 4, 2);
+	txPkt->pkt[MRBUS_PKT_DEST] = strtol(hexPair, &endPtr, 16);
+	if (endPtr != hexPair + 2)
+	{
+		mrbfsLogMessage(MRBFS_LOG_ERROR, "Packet [%s] doesn't pass dest addr test", pktStr);
+		return(0);
+	}
+
+	strncpy(hexPair, pktStr + 7, 2);
+	txPkt->pkt[MRBUS_PKT_TYPE] = strtol(hexPair, &endPtr, 16);
+	if (endPtr != hexPair + 2)
+	{
+		mrbfsLogMessage(MRBFS_LOG_ERROR, "Packet [%s] doesn't pass type byte test", pktStr);
+		return(0);
+	}
+
+	pktPtr = pktStr + 9;
+	// Now, there may or may not be more data bytes
+	while(strlen(pktPtr) >= 3 && (pktLen < 20))
+	{
+		// Gotta be hex digits
+		if(!(' ' == pktPtr[0] && isxdigit(pktPtr[1]) && isxdigit(pktPtr[2])))
+		{
+			mrbfsLogMessage(MRBFS_LOG_ERROR, "Packet [%s] doesn't pass format test - %d", pktStr, pktLen);
+			return(0);
+		}
+	
+		strncpy(hexPair, pktPtr+1, 2);
+		txPkt->pkt[pktLen++] = strtol(hexPair, NULL, 16);
+		pktPtr += 3;
+	}
+
+	txPkt->pkt[MRBUS_PKT_LEN] = pktLen;
+	return(1);
+
+}
+		
+void mrbfsBusTxWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int dataSz)
+{
+	uint32_t i=0, bus=0x100;
+	MRBusFilePktTxLocalStorage* nodeLocalStorage = NULL;
+	MRBusPacket txPkt;
+	char pktBuffer[256];
+	char* ptr, *pkt, *nextPkt;
+
+	for(i=0; i<MRBFS_MAX_BUS_NODES; i++)
+	{
+		if (mrbfsFileNode == gMrbfsConfig->bus_filePktTransmit[i])
+		{
+			// If we match this bus's transmit file, throw the packet down here
+			bus = i;
+			break;
+		}
+	}
+
+	// Not matched, bomb out
+	if (0x100 == bus)
+		return;
+
+	mrbfsLogMessage(MRBFS_LOG_INFO, "Bus %d pkt write - data=[%s], dataSz=%d", bus, data, dataSz);	
+
+	nodeLocalStorage = (MRBusFilePktTxLocalStorage*)(gMrbfsConfig->bus_filePktTransmit[bus]->nodeLocalStorage);
+	
+	ptr = nodeLocalStorage->inputBuffer + strlen(nodeLocalStorage->inputBuffer);
+	
+	// Parse and collect user input, cleansing to remove any unpalatables
+	for(i=0; i<dataSz && ptr < nodeLocalStorage->inputBuffer + BUS_TX_INPUT_BUFFER_SZ - 2; i++)
+	{
+		char c = toupper(data[i]);
+		if (isalnum(c))
+			*ptr++ = c;
+		else
+		{
+			switch(c)
+			{
+				case '\t':
+					*ptr++ = ' ';
+					break;
+				case '>':
+				case '-':
+				case ' ':
+				case '\n':
+					*ptr++ = c;
+					break;
+			}
+		}		
+	}
+
+	mrbfsLogMessage(MRBFS_LOG_INFO, "Bus %d pkt write - cleansed - ipb = [%s]", bus,  nodeLocalStorage->inputBuffer);	
+	
+	// Rip through the input buffer and see if we have a complete packet ready to go
+	ptr = pkt = nodeLocalStorage->inputBuffer;
+	while('\n' != *pkt && 0 != *pkt)
+		pkt++;
+
+	mrbfsLogMessage(MRBFS_LOG_INFO, "Bus %d pkt write - pkt offset at %d", bus, pkt - ptr);	
+
+	while(0 != *pkt)
+	{
+		// Hey look, we might have a packet
+		char* pktStr = (char*)alloca(pkt-ptr + 2);
+
+		mrbfsLogMessage(MRBFS_LOG_INFO, "Bus %d pkt write - parser found packet", bus);
+
+		memset(pktStr, 0, pkt-ptr+2);
+		strncpy(pktStr, ptr, pkt-ptr); // Kills the trailing new line or null
+
+		memset(&txPkt, 0, sizeof(MRBusPacket));	
+		txPkt.bus = bus;
+		
+		// Validate that it makes sense and transmit it
+		if(mrbfsIsValidPacketString(pktStr, &txPkt))
+		{
+			mrbfsLogMessage(MRBFS_LOG_INFO, "Bus %d pkt write - transmitting packet", bus);	
+		
+			if (mrbfsPacketTransmit(&txPkt) < 0)
+				mrbfsLogMessage(MRBFS_LOG_ERROR, "Bus %d failed to send packet", bus);
+		}
+		
+/*
+		01234567890123456789
+      ASDFn000000000000000
+      ^   ^
+      ipb pkt
+  
+		mov 0, 5, 20-5
+		clr 20-5,     
+      
+*/
+
+	
+		// Cleanse current packet off the input buffer
+		memmove(nodeLocalStorage->inputBuffer, pkt+1, BUS_TX_INPUT_BUFFER_SZ - (1 + (pkt - nodeLocalStorage->inputBuffer)));
+		memset(nodeLocalStorage->inputBuffer + BUS_TX_INPUT_BUFFER_SZ - (1 + pkt - ptr), 0, (1 + pkt - ptr));
+		
+		ptr = pkt = nodeLocalStorage->inputBuffer;
+		while('\n' != *pkt && 0 != *pkt)
+			pkt++;
+	}
+	
+}		
+		
 
 int mrbfsAddBus(UINT8 busNumber)
 {
@@ -393,7 +575,15 @@ int mrbfsAddBus(UINT8 busNumber)
 		{
 			mrbfsLogMessage(MRBFS_LOG_ERROR, "Failed to add bus [%d] directory, exiting", busNumber);
 			exit(1);
-		}		
+		}
+		
+		// Add transmit file
+		sprintf(buffer, "/bus%d", busNumber);
+		gMrbfsConfig->bus_filePktTransmit[busNumber] = mrbfsFilesystemAddFile("txPacket", FNODE_RW_VALUE_STR, buffer);
+		gMrbfsConfig->bus_filePktTransmit[busNumber]->mrbfsFileNodeWrite = &mrbfsBusTxWrite;
+		gMrbfsConfig->bus_filePktTransmit[busNumber]->nodeLocalStorage = (void*)calloc(1, sizeof(MRBusFilePktTxLocalStorage));
+		((MRBusFilePktTxLocalStorage*)(gMrbfsConfig->bus_filePktTransmit[busNumber]->nodeLocalStorage))->bus = busNumber;
+		gMrbfsConfig->bus_filePktTransmit[busNumber]->value.valueStr = ((MRBusFilePktTxLocalStorage*)(gMrbfsConfig->bus_filePktTransmit[busNumber]->nodeLocalStorage))->inputBuffer;
 	}
 	else
 	{

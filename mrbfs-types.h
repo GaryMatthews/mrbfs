@@ -22,9 +22,12 @@
 
 typedef unsigned long UINT32 ;
 typedef unsigned char UINT8 ;
+#ifndef uint8_t
 typedef unsigned char uint8_t;
+#endif
+#ifndef uint16_t
 typedef unsigned short uint16_t;
-typedef unsigned long uint32_t;
+#endif
 
 
 typedef enum
@@ -192,6 +195,14 @@ typedef struct
 	int localTime;
 } MRBFSClock;
 
+#define BUS_TX_INPUT_BUFFER_SZ  2048
+
+typedef struct
+{
+	char inputBuffer[BUS_TX_INPUT_BUFFER_SZ];
+	uint8_t bus;
+} MRBusFilePktTxLocalStorage;
+
 typedef struct 
 {
    mrbfsLogLevel logLevel;
@@ -202,6 +213,7 @@ typedef struct
 	MRBFSInterfaceDriver* mrbfsInterfaceDrivers[MRBFS_MAX_INTERFACES];
 	UINT8 mrbfsUsedInterfaces;
 	MRBFSBus* bus[MRBFS_MAX_BUS_NODES];
+	MRBFSFileNode* bus_filePktTransmit[MRBFS_MAX_BUS_NODES];
   	pthread_mutex_t masterLock;
 	MRBFSFileNode* rootNode;
 	pthread_mutex_t fsLock;

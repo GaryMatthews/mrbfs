@@ -9,6 +9,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <termios.h>
+#include <signal.h>
 #include <stdio.h>
 #include <pthread.h>
 #include <unistd.h>
@@ -95,15 +96,21 @@ int mrbfsInterfaceDriverVersionCheck(int ifaceVersion)
 	return(1);
 }
 
-static void mrbfsCI2SerialClose(int fd)
+static void mrbfsXbeeSerialClose(MRBFSInterfaceDriver* mrbfsInterfaceDriver, int fd)
 {
+	if (-1 != fd)
+	{
+		(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface [%s] closing port", mrbfsInterfaceDriver->interfaceName);
+		close(fd);
+	}
 	return;
 }
 
-static int mrbfsCI2SerialOpen(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
+static int mrbfsXbeeSerialOpen(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 {
 	int fd, n;
 	struct termios options;
+	struct sigaction saio;
 	int  nbytes;       // Number of bytes read 
 	struct timeval timeout;
 	char* device = mrbfsInterfaceDriver->port;
@@ -113,10 +120,12 @@ static int mrbfsCI2SerialOpen(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 	fd = open(device, O_RDWR | O_NOCTTY | O_NDELAY); 
    if (fd < 0)
 	{
-		(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_ERROR, "Ser, %d", fd);
+		(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_ERROR, "Interface [%s] - Cannot open %s, err=%d", mrbfsInterfaceDriver->interfaceName, device, fd);
 		perror(device); 
-		return(0); 
+		return(-1); 
 	}
+
+	fcntl(fd, F_SETOWN, getpid());
 	fcntl(fd, F_SETFL, O_NONBLOCK);
 	tcgetattr(fd,&options); // save current serial port settings 
 
@@ -159,7 +168,7 @@ size_t mrbfsFileNodeRead(MRBFSFileNode* mrbfsFileNode, char *buf, size_t size, o
 		responseBuffer = (char*)alloca(20 * 256); // Enough for any/all RSSI nodes at 14 bytes per
 		if (NULL != responseBuffer)
 		{
-			uint32_t i = 0;
+			UINT32 i = 0;
 			
 			respBufferPtr = responseBuffer;
 			
@@ -246,22 +255,49 @@ void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 	NodeLocalStorage* nodeLocalStorage = (NodeLocalStorage*)mrbfsInterfaceDriver->nodeLocalStorage;
 	struct termios options;
 	struct timeval timeout;
+	struct sigaction saio;
 	int processingPacket=0;
 	int fd = -1, nbytes=0, i=0;	
-	uint32_t expectedPktLen = 0;
-	uint8_t escapeNextByte = 0;
-	
-
+	UINT32 expectedPktLen = 0;
+	UINT8 escapeNextByte = 0;
+	UINT8 resetSerial = 0;
+			
 	(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface [%s] confirms startup", mrbfsInterfaceDriver->interfaceName);
 
    memset(buffer, 0, sizeof(buffer));
    bufptr = buffer;
 
-	fd = mrbfsCI2SerialOpen(mrbfsInterfaceDriver);
+	fd = mrbfsXbeeSerialOpen(mrbfsInterfaceDriver);
 
    while(!mrbfsInterfaceDriver->terminate)
    {
       usleep(1000);
+      
+      if(-1 == fd || ((nbytes = write(fd, "  ", 0)) < 0))
+      {
+      	// Signals don't seem to get generated with USB device removal
+      	// Maybe I'm doing it wrong
+      	// That said, writing 0 bytes to a closed terminal gets us an error
+			resetSerial = 1;
+		}
+      
+      if (resetSerial)
+      {
+	      mrbfsXbeeSerialClose(mrbfsInterfaceDriver, fd);    
+	      
+	      // Nothing we can do until we get our port back
+			do
+			{
+   			memset(buffer, 0, sizeof(buffer));
+			   bufptr = buffer;
+			   escapeNextByte = 0;
+
+		      fd = mrbfsXbeeSerialOpen(mrbfsInterfaceDriver);
+		      usleep(100000);
+			} while (0 == fd);
+			resetSerial = 0;
+      }
+      
       while ((nbytes = read(fd, incomingByte, 1)) > 0)
       {
 			(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface [%s] got byte [0x%02X]", mrbfsInterfaceDriver->interfaceName, incomingByte[0]);
@@ -394,6 +430,9 @@ void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 					break;
 				}
       }
+      
+      if (nbytes < -1)
+      	(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Interface [%s] error = %d", mrbfsInterfaceDriver->interfaceName, nbytes);
 
 		if (!processingPacket && mrbusPacketQueueDepth(&nodeLocalStorage->txq) )
 		{
@@ -403,11 +442,9 @@ void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 			uint8_t *txPktPtr, *txPktEscapedPtr;
 			uint8_t txPktLen=0, txPktLenWithEscapes=0;
 			uint16_t crc16_value = 0;
-			uint8_t xbeeChecksum = 0;
-			uint32_t i = 0;
-			
+			UINT8 xbeeChecksum = 0;
+			UINT32 i = 0;
 
-			
 			mrbusPacketQueuePop(&nodeLocalStorage->txq, &txPkt);
 
 			// First, calculate MRBus CRC16 
@@ -418,7 +455,7 @@ void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 			}			
 			txPkt.pkt[MRBUS_PKT_CRC_L] = (crc16_value & 0xFF);
 			txPkt.pkt[MRBUS_PKT_CRC_H] = ((crc16_value >> 8) & 0xFF);			
-
+			(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Interface [%s] CRC = %02X %02X", mrbfsInterfaceDriver->interfaceName, txPkt.pkt[MRBUS_PKT_CRC_H], txPkt.pkt[MRBUS_PKT_CRC_L]);
 			// Now figure out the length of the data segment, before escaping
 			txPktLen = txPkt.pkt[MRBUS_PKT_LEN] + 4; 
 
@@ -466,7 +503,9 @@ void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 			}
 
 			(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface driver [%s] transmitting %d bytes", mrbfsInterfaceDriver->interfaceName, txPktEscapedPtr - txPktBufferEscaped); 
-			write(fd, txPktBufferEscaped, txPktEscapedPtr - txPktBufferEscaped);
+			nbytes  = write(fd, txPktBufferEscaped, txPktEscapedPtr - txPktBufferEscaped);
+			if (nbytes < 0)
+				resetSerial = 1;
 		}
 
    }
