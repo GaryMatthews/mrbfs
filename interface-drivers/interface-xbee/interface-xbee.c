@@ -110,7 +110,6 @@ static int mrbfsXbeeSerialOpen(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 {
 	int fd, n;
 	struct termios options;
-	struct sigaction saio;
 	int  nbytes;       // Number of bytes read 
 	struct timeval timeout;
 	char* device = mrbfsInterfaceDriver->port;
@@ -291,9 +290,8 @@ void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
    			memset(buffer, 0, sizeof(buffer));
 			   bufptr = buffer;
 			   escapeNextByte = 0;
-
-		      fd = mrbfsXbeeSerialOpen(mrbfsInterfaceDriver);
 		      usleep(100000);
+		      fd = mrbfsXbeeSerialOpen(mrbfsInterfaceDriver);
 			} while (0 == fd);
 			resetSerial = 0;
       }
@@ -511,6 +509,7 @@ void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
    }
    
 	(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface driver [%s] terminating", mrbfsInterfaceDriver->interfaceName);
+	mrbfsXbeeSerialClose(mrbfsInterfaceDriver, fd);	
 	phtread_exit(NULL);
 }
 

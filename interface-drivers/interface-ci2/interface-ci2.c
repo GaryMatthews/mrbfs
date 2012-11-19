@@ -37,8 +37,14 @@ int mrbfsInterfaceDriverVersionCheck(int ifaceVersion)
 	return(1);
 }
 
-static void mrbfsCI2SerialClose(int fd)
+static void mrbfsCI2SerialClose(MRBFSInterfaceDriver* mrbfsInterfaceDriver, int fd)
 {
+	if (-1 != fd)
+	{
+		(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface [%s] closing port", mrbfsInterfaceDriver->interfaceName);
+		close(fd);
+	}
+	return;
 }
 
 static int mrbfsCI2SerialOpen(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
@@ -56,7 +62,7 @@ static int mrbfsCI2SerialOpen(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 	{
 		(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_ERROR, "Ser, %d", fd);
 		perror(device); 
-		return(0); 
+		return(-1); 
 	}
 	fcntl(fd, F_SETFL, O_NONBLOCK);
 	tcgetattr(fd,&options); // save current serial port settings 
@@ -131,6 +137,7 @@ void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 	struct termios options;
 	struct timeval timeout;
 	int processingPacket=0;
+	UINT8 resetSerial = 0;
 	int fd = -1, nbytes=0, i=0;	
 
 	(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface [%s] confirms startup", mrbfsInterfaceDriver->interfaceName);
@@ -143,6 +150,30 @@ void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
    while(!mrbfsInterfaceDriver->terminate)
    {
       usleep(1000);
+      
+      if(-1 == fd || ((nbytes = write(fd, "  ", 0)) < 0))
+      {
+      	// Signals don't seem to get generated with USB device removal
+      	// Maybe I'm doing it wrong
+      	// That said, writing 0 bytes to a closed terminal gets us an error
+			resetSerial = 1;
+		}
+      
+      if (resetSerial)
+      {
+	      mrbfsCI2SerialClose(mrbfsInterfaceDriver, fd);    
+	      
+	      // Nothing we can do until we get our port back
+			do
+			{
+   			memset(buffer, 0, sizeof(buffer));
+			   bufptr = buffer;
+		      usleep(100000);
+		      fd = mrbfsCI2SerialOpen(mrbfsInterfaceDriver);
+			} while (0 == fd);
+			resetSerial = 0;
+      }      
+      
       while ((nbytes = read(fd, incomingByte, 1)) > 0)
       {
         (*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface [%s] got byte [0x%02X]", mrbfsInterfaceDriver->interfaceName, incomingByte[0]);
@@ -241,12 +272,15 @@ void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 				sprintf(txPktBuffer + strlen(txPktBuffer), " %02X", txPkt.pkt[i]);
 			sprintf(txPktBuffer + strlen(txPktBuffer), ";\x0D");
 			(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface driver [%s] transmitting %d bytes", mrbfsInterfaceDriver->interfaceName, strlen(txPktBuffer)); 
-			write(fd, txPktBuffer, strlen(txPktBuffer));
+			nbytes = write(fd, txPktBuffer, strlen(txPktBuffer));
+			if (nbytes < 0)
+				resetSerial = 1;			
 		}
 
    }
    
 	(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface driver [%s] terminating", mrbfsInterfaceDriver->interfaceName);   
+	mrbfsCI2SerialClose(mrbfsInterfaceDriver, fd);  
 	phtread_exit(NULL);
 }
 
