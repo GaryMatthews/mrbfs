@@ -270,7 +270,6 @@ void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 
    while(!mrbfsInterfaceDriver->terminate)
    {
-		int nextEscaped = 0;
       usleep(1000);
       
       if(-1 == fd || ((nbytes = write(fd, "  ", 0)) < 0))
@@ -303,10 +302,16 @@ void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 
          switch(incomingByte[0])
          {
-				case 0x7E:
-					// Start of XBee frame
-					nextEscaped = 0;	
-					break;
+            case 0x7E:
+					// Start of API frame
+               memset(buffer, 0, sizeof(buffer));
+               bufptr = buffer;
+               *bufptr++ = incomingByte[0];               
+					processingPacket = 1;
+					expectedPktLen = 0;
+					escapeNextByte = 0;
+					(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface [%s] starting packet parse on 0x7E", mrbfsInterfaceDriver->interfaceName);
+               break;
                
 				case 0x7D:
 					// Escape character
@@ -319,50 +324,29 @@ void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 						incomingByte[0] ^= 0x20;
 					escapeNextByte = 0;
 
-				case 0x7D:
-					nextEscaped = 1;
-					break;
-
-            default:
 					processingPacket = 1;
-					if(nextEscaped)
-					{
-						incomingByte[0] ^= 0x20;
-					}
-
                *bufptr++ = incomingByte[0];
-
-					// Overflow, do something safe
                if (bufptr >= buffer + sizeof(buffer))
                {
 						processingPacket = 0;
+						memset(buffer, 0, sizeof(buffer));	                
 						bufptr = buffer;
 						break;
                }
 
-					// If past the point at which we could get length and checksum
-					// and buffer length matches the length byte, we've got a packet
-					// Check checksum and blow out
-					// Where's the length?!?  Bytes 0-1 or byte 2?
-					if ((bufptr - buffer) > 1 && (bufptr - buffer) == buffer[2])
-               {
-						time_t currentTime = time(NULL);
-						UINT8 checksum = 0;
-                  // It's a packet
-						// Give it back to the control thread
-						MRBusPacket rxPkt;
-						memset(&rxPkt, 0, sizeof(MRBusPacket));
+		        (*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface [%s] buffer len is %d, looking for %d", mrbfsInterfaceDriver->interfaceName, bufptr - buffer, expectedPktLen);
 
-						for(i=0; i<(bufptr - buffer); i++)
-							checksum += buffer[i];
+					if (3 == (bufptr - buffer))
+						expectedPktLen = (((unsigned int)buffer[1])<<8) + buffer[2] + 4; // length is 3 bytes of header + 1 byte of check + data len
 
-						if (0xFF != checksum)
-							break;						
-
-
-						rxPkt.bus = mrbfsInterfaceDriver->bus;
-						rxPkt.len = (bufptr - buffer);
-						for(i=0; i<rxPkt.len; i++, ptr+=2)
+					if ((bufptr - buffer) == expectedPktLen) 
+					{
+						// Theoretical end of packet
+						unsigned char pktChecksum = 0;
+						for (i=3; i<expectedPktLen; i++)
+							pktChecksum += buffer[i];
+						
+						if (0xFF != pktChecksum)
 						{
 							(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface [%s] got pkt with bad checksum - actual=0x%02X rcvd=0x%02X", mrbfsInterfaceDriver->interfaceName, pktChecksum, buffer[expectedPktLen-1]);
 						}
@@ -448,15 +432,6 @@ void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
       if (nbytes < -1)
       	(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Interface [%s] error = %d", mrbfsInterfaceDriver->interfaceName, nbytes);
 
-
-               memset(buffer, 0, sizeof(buffer));
-               bufptr = buffer;
-					processingPacket = 0;
-
-               break;
-
-         }
-      }
 		if (!processingPacket && mrbusPacketQueueDepth(&nodeLocalStorage->txq) )
 		{
 			MRBusPacket txPkt;
