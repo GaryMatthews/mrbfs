@@ -117,7 +117,7 @@ static int mrbfsXbeeSerialOpen(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 	(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface [%s] - Starting serial port setup on [%s]", mrbfsInterfaceDriver->interfaceName, device);
 
 	fd = open(device, O_RDWR | O_NOCTTY | O_NDELAY); 
-   if (fd < 0)
+	if (fd < 0)
 	{
 		(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_ERROR, "Interface [%s] - Cannot open %s, err=%d", mrbfsInterfaceDriver->interfaceName, device, fd);
 		perror(device); 
@@ -126,24 +126,24 @@ static int mrbfsXbeeSerialOpen(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 
 	fcntl(fd, F_SETOWN, getpid());
 	fcntl(fd, F_SETFL, O_NONBLOCK);
-	tcgetattr(fd,&options); // save current serial port settings 
+	tcgetattr(fd, &options); // save current serial port settings 
 
 	(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Interface [%s] - Serial port [%s] opened, not yet configured", mrbfsInterfaceDriver->interfaceName, device);
 
 	cfsetispeed(&options, B115200);
 	cfsetospeed(&options, B115200);
 
-   options.c_cflag &= ~CSIZE; // Mask the character size bits 
-   options.c_cflag |= CS8;    // Select 8 data bits 
+	options.c_cflag &= ~CSIZE; // Mask the character size bits 
+	options.c_cflag |= CS8;    // Select 8 data bits 
 
 	options.c_cflag &= ~CRTSCTS;
 	options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
 	options.c_iflag &= ~(IXON | IXOFF | IXANY | ICRNL);
 	options.c_oflag &= ~OPOST;
 	options.c_cc[VTIME] = 0;
-   options.c_cc[VMIN]   = 1;   // blocking read until 5 chars received
+	options.c_cc[VMIN]   = 1;   // blocking read until 5 chars received
    
-   tcflush(fd, TCIFLUSH);
+	tcflush(fd, TCIFLUSH);
 	tcsetattr(fd, TCSAFLUSH, &options);
 
 	(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface [%s] - Serial startup complete", mrbfsInterfaceDriver->interfaceName);
@@ -446,32 +446,36 @@ void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 			mrbusPacketQueuePop(&nodeLocalStorage->txq, &txPkt);
 
 			// First, calculate MRBus CRC16 
-		   for (i = 0; i < txPkt.pkt[MRBUS_PKT_LEN]; i++)
+			for (i = 0; i < txPkt.pkt[MRBUS_PKT_LEN]; i++)
 			{
-		      if ((i != MRBUS_PKT_CRC_H) && (i != MRBUS_PKT_CRC_L))
-		         crc16_value = mrbusCRC16Update(crc16_value, txPkt.pkt[i]);
+				if ((i != MRBUS_PKT_CRC_H) && (i != MRBUS_PKT_CRC_L))
+					crc16_value = mrbusCRC16Update(crc16_value, txPkt.pkt[i]);
 			}			
 			txPkt.pkt[MRBUS_PKT_CRC_L] = (crc16_value & 0xFF);
 			txPkt.pkt[MRBUS_PKT_CRC_H] = ((crc16_value >> 8) & 0xFF);			
 			(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Interface [%s] CRC = %02X %02X", mrbfsInterfaceDriver->interfaceName, txPkt.pkt[MRBUS_PKT_CRC_H], txPkt.pkt[MRBUS_PKT_CRC_L]);
+
 			// Now figure out the length of the data segment, before escaping
-			txPktLen = txPkt.pkt[MRBUS_PKT_LEN] + 4; 
+			txPktLen = txPkt.pkt[MRBUS_PKT_LEN] + 5; 
 
 			txPktPtr = txPktBuffer;
 			memset(txPktBuffer, 0, sizeof(txPktBuffer));
 			
-			*txPktPtr++ = 0x7E; // 0 - Start 
-			*txPktPtr++ = 0xFF & (txPktLen>>8);  // 1 - Len MSB
-			*txPktPtr++ = 0xFF & txPktLen; // 2 - Len LSB
-			*txPktPtr++ = 0x01;  // 3 - API being called - transmit by 16 bit address
-			*txPktPtr++ = 0xFF;  // 4 - MSB of dest address - broadcast 0xFFFF
-			*txPktPtr++ = 0xFF;  // 5 - LSB of dest address - broadcast 0xFFFF
-			*txPktPtr++ = 0x00; 	// 6 - Transmit options
+			
+			*txPktPtr++ = 0x7E;     // 0 - Start 
+			*txPktPtr++ = 0x00;     // 1 - Len MSB
+			*txPktPtr++ = txPktLen; // 2 - Len LSB
+			*txPktPtr++ = 0x01;     // 3 - API being called - transmit by 16 bit address
+			*txPktPtr++ = 0x00;     // 4 - Frame identifier
+			*txPktPtr++ = 0xFF;     // 5 - MSB of dest address - broadcast 0xFFFF
+			*txPktPtr++ = 0xFF;     // 6 - LSB of dest address - broadcast 0xFFFF
+			*txPktPtr++ = 0x00; 	// 7 - Transmit options
 
 			// Copy over actual packet			
 			for(i=0; i<txPkt.pkt[MRBUS_PKT_LEN]; i++)
 				*txPktPtr++ = txPkt.pkt[i];
 			
+			xbeeChecksum = 0;
 			// Add up checksum
 			for(i=3; i<(txPktPtr - txPktBuffer); i++)
 				xbeeChecksum += txPktBuffer[i];
@@ -479,10 +483,11 @@ void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 			xbeeChecksum = 0xFF - xbeeChecksum;
 			*txPktPtr++ = xbeeChecksum;
 			
-			txPktEscapedPtr = txPktBufferEscaped;
 			memset(txPktBufferEscaped, 0, sizeof(txPktBufferEscaped));
-			
-			for(i=0; i<(txPktPtr - txPktBuffer); i++)
+			txPktEscapedPtr = txPktBufferEscaped;
+
+			*txPktEscapedPtr++ = txPktBuffer[0];
+			for(i=1; i<(txPktPtr - txPktBuffer); i++)
 			{
 				switch(txPktBuffer[i])
 				{
@@ -498,6 +503,18 @@ void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 						*txPktEscapedPtr++ = txPktBuffer[i];
 						break;
 				}
+			}
+
+			*txPktEscapedPtr++ = 0;
+			
+			{
+				char buffer[1024];
+				memset(buffer, 0, sizeof(buffer));
+				for (i = 0; i < txPktEscapedPtr - txPktBufferEscaped; i++)
+				{
+					sprintf(buffer+i*3, "%02X ", txPktBufferEscaped[i]);
+				}			
+				(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Interface [%s] txPkt = [%s]", mrbfsInterfaceDriver->interfaceName, buffer);
 			}
 
 			(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface driver [%s] transmitting %d bytes", mrbfsInterfaceDriver->interfaceName, txPktEscapedPtr - txPktBufferEscaped); 
