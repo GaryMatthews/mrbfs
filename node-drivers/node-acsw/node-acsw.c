@@ -263,6 +263,11 @@ void mrbfsFileNodeWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int data
 			txPkt.pkt[7] = 'L';
 			xmit = 1;
 		}	
+		else if (0 == strcmp(commandStr, "RESET"))
+		{
+			txPkt.pkt[7] = 'R';
+			xmit = 1;
+		}	
 		else if (0 == strcmp(commandStr, "CLEAR"))
 		{
 			txPkt.pkt[7] = 'F';
@@ -830,7 +835,7 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 				}
 
 				nodeLocalStorage->lastUpdated = currentTime;			
-				snprintf(nodeLocalStorage->busVoltageValue, OUTPUT_VALUE_BUFFER_SZ-1, "%.*f%s", nodeLocalStorage->decimalPositions, ((double)rxPkt->pkt[10])/10.0, nodeLocalStorage->suppressUnits?"":" V\n" );
+				snprintf(nodeLocalStorage->busVoltageValue, OUTPUT_VALUE_BUFFER_SZ-1, "%.*f%s", nodeLocalStorage->decimalPositions, ((double)rxPkt->pkt[9])/10.0, nodeLocalStorage->suppressUnits?"":" V\n" );
 				nodeLocalStorage->file_busVoltage->updateTime = currentTime;				
 			}
 			break;			
