@@ -89,6 +89,20 @@ uint16_t mrbusCRC16Update(uint16_t crc, uint8_t a)
 }
 
 
+const char* mrbfsInterfaceOptionGet(MRBFSInterfaceDriver* mrbfsInterfaceDriver, const char* interfaceOptionKey, const char* defaultValue)
+{
+	int i;
+	(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] - [%d] node options, looking for [%s]", mrbfsInterfaceDriver->interfaceName, mrbfsInterfaceDriver->interfaceOptions, interfaceOptionKey);
+
+	for(i=0; i<mrbfsInterfaceDriver->interfaceOptions; i++)
+	{
+		(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] - node option [%d], comparing key [%s] to [%s]", mrbfsInterfaceDriver->interfaceName, i, interfaceOptionKey, mrbfsInterfaceDriver->interfaceOptionList[i].key);
+		if (0 == strcmp(interfaceOptionKey, mrbfsInterfaceDriver->interfaceOptionList[i].key))
+			return(mrbfsInterfaceDriver->interfaceOptionList[i].value);
+	}
+	return(defaultValue);
+}
+
 int mrbfsInterfaceDriverVersionCheck(int ifaceVersion)
 {
 	if (ifaceVersion != MRBFS_INTERFACE_DRIVER_VERSION)
@@ -106,14 +120,46 @@ static void mrbfsXbeeSerialClose(MRBFSInterfaceDriver* mrbfsInterfaceDriver, int
 	return;
 }
 
+typedef struct
+{
+	const char* baudRateStr;
+	speed_t baudRate;
+} BaudDef;
+
+int getBaudFromString(const char* baudRateStr, speed_t* baudRate)
+{
+	BaudDef BaudDefinitions[] = 
+	{ 
+		{ "115200", B115200 },
+		{  "57600",  B57600 },
+		{  "38400",  B38400 },
+		{  "19200",  B19200 },
+		{   "9600",   B9600 }
+	};	
+	int i;
+	
+	for (i=0; i<sizeof(BaudDefinitions)/sizeof(BaudDef); i++)
+	{
+		if (0 == strcmp(baudRateStr, BaudDefinitions[i].baudRateStr))
+		{
+			*baudRate = BaudDefinitions[i].baudRate;
+			return(0);
+		}
+	}
+	
+	*baudRate = B115200;
+	return(1);
+}
+
 static int mrbfsXbeeSerialOpen(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 {
-	int fd, n;
+	int fd, n, status;
 	struct termios options;
 	int  nbytes;       // Number of bytes read 
 	struct timeval timeout;
 	char* device = mrbfsInterfaceDriver->port;
-
+	const char* baudRateStr = "";
+	speed_t baudRate = B115200;
 	(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface [%s] - Starting serial port setup on [%s]", mrbfsInterfaceDriver->interfaceName, device);
 
 	fd = open(device, O_RDWR | O_NOCTTY | O_NDELAY); 
@@ -130,8 +176,23 @@ static int mrbfsXbeeSerialOpen(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 
 	(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Interface [%s] - Serial port [%s] opened, not yet configured", mrbfsInterfaceDriver->interfaceName, device);
 
-	cfsetispeed(&options, B115200);
-	cfsetospeed(&options, B115200);
+	baudRateStr = mrbfsInterfaceOptionGet(mrbfsInterfaceDriver, "baud", "115200");
+
+	status = getBaudFromString(baudRateStr, &baudRate);
+	if (status)
+	{
+		(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_ERROR, "Interface [%s] - Baud rate of [%s] is unsupported, defaulting to 115200", mrbfsInterfaceDriver->interfaceName, baudRateStr);
+		baudRate = B115200;
+	} else {
+		(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface [%s] - Setting baud rate to [%s]", mrbfsInterfaceDriver->interfaceName, baudRateStr);
+	}
+
+	if (B115200 == baudRate)
+		(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface [%s] - WARNING:  XBees are known to be unhappy at 115200, please consider a lower baud rate like 57600", mrbfsInterfaceDriver->interfaceName);
+
+
+	cfsetispeed(&options, baudRate);
+	cfsetospeed(&options, baudRate);
 
 	options.c_cflag &= ~CSIZE; // Mask the character size bits 
 	options.c_cflag |= CS8;    // Select 8 data bits 
@@ -505,7 +566,7 @@ void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 				}
 			}
 
-			*txPktEscapedPtr++ = 0;
+//			*txPktEscapedPtr++ = 0;
 			
 			{
 				char buffer[1024];
