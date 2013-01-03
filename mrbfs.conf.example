@@ -15,6 +15,9 @@ module-directory = "/home/ndholmes/data/mrbus/mrbfs/modules"
 #   driver = "interface-xbee.so"
 #   port = "/dev/ttyUSB0"
 #   interface-address = "0xFE"
+##   baud option is 9600, 19200, 38400, 57600, or 115200
+##   Note that 115200 can be unreliable and flakey due to baud mismatches between the PC and the xbee
+#   option { baud = "57600" }
 #}
 
 
