@@ -632,11 +632,15 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 	nodeLocalStorage->counterAValueStr = calloc(1, OUTPUT_VALUE_BUFFER_SZ);	
 	nodeLocalStorage->file_counterA = (*mrbfsNode->mrbfsFilesystemAddFile)("counterA", FNODE_RW_VALUE_STR, mrbfsNode->path);
 	nodeLocalStorage->file_counterA->value.valueStr = nodeLocalStorage->counterAValueStr;
-
+	nodeLocalStorage->file_counterA->nodeLocalStorage = (void*)mrbfsNode;
+	nodeLocalStorage->file_counterA->mrbfsFileNodeWrite = &mrbfsFileNodeWrite; // Associate this node's mrbfsFileNodeWrite for write callbacks
+	
 	nodeLocalStorage->counterBValueStr = calloc(1, OUTPUT_VALUE_BUFFER_SZ);	
 	nodeLocalStorage->file_counterB = (*mrbfsNode->mrbfsFilesystemAddFile)("counterB", FNODE_RW_VALUE_STR, mrbfsNode->path);
 	nodeLocalStorage->file_counterB->value.valueStr = nodeLocalStorage->counterBValueStr;
-
+	nodeLocalStorage->file_counterB->nodeLocalStorage = (void*)mrbfsNode;	
+	nodeLocalStorage->file_counterB->mrbfsFileNodeWrite = &mrbfsFileNodeWrite; // Associate this node's mrbfsFileNodeWrite for write callbacks
+	
 	nodeResetFilesNoData(mrbfsNode);
 
 	// Return 0 to indicate success
