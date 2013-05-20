@@ -395,7 +395,7 @@ int mrbfsNodeTick(MRBFSBusNode* mrbfsNode, time_t currentTime)
 		txPkt.bus = mrbfsNode->bus;
 		txPkt.pkt[MRBUS_PKT_SRC] = mrbfsNode->address;  // A source of 0 will be replaced by the transmit drivers with the interface addresses
 		txPkt.pkt[MRBUS_PKT_DEST] = 0xFF; // Broadcast
-		txPkt.pkt[MRBUS_PKT_LEN] = 16;
+		txPkt.pkt[MRBUS_PKT_LEN] = 18;
 		txPkt.pkt[MRBUS_PKT_TYPE] = 'T';
 		
 		txPkt.pkt[MRBUS_PKT_DATA+0] = localTime.tm_hour;
@@ -404,14 +404,14 @@ int mrbfsNodeTick(MRBFSBusNode* mrbfsNode, time_t currentTime)
 		txPkt.pkt[MRBUS_PKT_DATA+3] = 0;
 
 		txPkt.pkt[MRBUS_PKT_DATA+4] = 0;  // Fast time hours
-		txPkt.pkt[MRBUS_PKT_DATA+5] = 0;	 // Fast time minutes
+		txPkt.pkt[MRBUS_PKT_DATA+5] = 0;  // Fast time minutes
 		txPkt.pkt[MRBUS_PKT_DATA+6] = 0;  // Fast time seconds
-		txPkt.pkt[MRBUS_PKT_DATA+7] = 0;  // Scale factor
+		txPkt.pkt[MRBUS_PKT_DATA+7] = 0;  // Scale factor (H)
+		txPkt.pkt[MRBUS_PKT_DATA+8] = 0;  // Scale factor (L)
 
-
-		txPkt.pkt[MRBUS_PKT_DATA+8] = 0xFF&(year>>4);  // Upper 8 bits of 12-bit year
-		txPkt.pkt[MRBUS_PKT_DATA+9] = (0xF0 & (year<<4)) | (0x0F & localTime.tm_mon);	 // bits [4:7] lower 4 bits of 12 bit year, bits[0:3] month
-		txPkt.pkt[MRBUS_PKT_DATA+10] = localTime.tm_mday;
+		txPkt.pkt[MRBUS_PKT_DATA+9] = 0xFF&(year>>4);  // Upper 8 bits of 12-bit year
+		txPkt.pkt[MRBUS_PKT_DATA+10] = (0xF0 & (year<<4)) | (0x0F & (localTime.tm_mon + 1));	 // bits [4:7] lower 4 bits of 12 bit year, bits[0:3] month; tm_mon is zero based.
+		txPkt.pkt[MRBUS_PKT_DATA+11] = localTime.tm_mday;
 
 		nodeLocalStorage->lastUpdated = currentTime;
 		
