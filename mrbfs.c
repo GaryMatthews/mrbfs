@@ -88,8 +88,8 @@ static int mrbfs_opt_proc(void *data, const char *arg, int key, struct fuse_args
 		                  "    -V   --version   print version\n"
 		                  "\n"
 		                  "MRBFS options:\n"
-		                  "    -d <DEBUG LEVEL 0-2, 0=errors only, 1=warnings, 2=debug\n"
-		                  "    -c <CONFIG FILE LOCATION>mybool=BOOL    same as 'mybool' or 'nomybool'\n"
+		                  "    -d <DEBUG LEVEL 0-2, 0=system/errors only, 1=warnings, 2=info, 9=full debug\n"
+		                  "    -c <CONFIG FILE LOCATION>\n"
 		                  , outargs->argv[0]);
 		          fuse_opt_add_arg(outargs, "-hocd");
 		          fuse_main(outargs->argc, outargs->argv, &mrbfsOperations, NULL);
@@ -212,8 +212,9 @@ int main(int argc, char *argv[])
    int multithreaded;
    int foreground;
    int res;
+   int logLevelFromCommandLine = 0;
    struct stat st;   
-
+	MRBFSFuseConfig fuseConfig;
 	
 	if (NULL == (gMrbfsConfig = calloc(1, sizeof(MRBFSConfig))))
 	{
@@ -229,21 +230,37 @@ int main(int argc, char *argv[])
 		pthread_mutex_init(&gMrbfsConfig->masterLock, &lockAttr);
 		pthread_mutexattr_destroy(&lockAttr);		
 	}
-	
-	fuse_opt_parse(&args, &gMrbfsConfig, mrbfs_opts, NULL);
 
-	gMrbfsConfig->logLevel=9;
+	memset(&fuseConfig, 0, sizeof(MRBFSFuseConfig));
+	fuseConfig.logLevel = -1;
+	
+	fuse_opt_parse(&args, &fuseConfig, mrbfs_opts, mrbfs_opt_proc);
+
+	if (NULL != fuseConfig.configFileStr && 0 != strlen(fuseConfig.configFileStr))
+	{
+		gMrbfsConfig->configFileStr = strdup(fuseConfig.configFileStr);
+	}
 
 	// Okay, we've theoretically parsed any configuration options from the command line.
 	// Go try to load our configuration file
 	mrbfsSingleInitConfig();
+
+	// If we got a logging level from the command line, ignore anything in the config file
+	if (fuseConfig.logLevel != -1)
+	{
+		gMrbfsConfig->logLevel = fuseConfig.logLevel;
+	}
+	else
+	{
+		gMrbfsConfig->logLevel = cfg_getint(gMrbfsConfig->cfgParms, "log-level");
+	}
 
 	// Okay, configuration file is loaded, start logging
 	mrbfsSingleInitLogging();
 	
 	// At this point, we've got our configuration and logging is active
 	// Log a startup message and get on with starting the filesystem
-	mrbfsLogMessage(MRBFS_LOG_ERROR, "MRBFS Startup");
+	mrbfsLogMessage(MRBFS_LOG_SYSTEM, "MRBFS Startup");
 
 	res = fuse_parse_cmdline(&args, &mountpoint, &multithreaded, &foreground);
 	if (res == -1)
@@ -438,10 +455,12 @@ static int mrbfsIsValidPacketString(const char* pktStr, MRBusPacket* txPkt)
 	return(1);
 
 }
+
+#define MRBFS_BUS_NOT_FOUND 0x100
 		
 void mrbfsBusTxWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int dataSz)
 {
-	uint32_t i=0, bus=0x100;
+	uint32_t i=0, bus=MRBFS_BUS_NOT_FOUND;
 	MRBusFilePktTxLocalStorage* nodeLocalStorage = NULL;
 	MRBusPacket txPkt;
 	char pktBuffer[256];
@@ -458,7 +477,7 @@ void mrbfsBusTxWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int dataSz)
 	}
 
 	// Not matched, bomb out
-	if (0x100 == bus)
+	if (MRBFS_BUS_NOT_FOUND == bus)
 		return;
 
 	mrbfsLogMessage(MRBFS_LOG_INFO, "Bus %d pkt write - data=[%s], dataSz=%d", bus, data, dataSz);	

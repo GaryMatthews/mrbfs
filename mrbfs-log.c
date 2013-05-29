@@ -25,13 +25,17 @@ int mrbfsLogMessage(mrbfsLogLevel logLevel, const char* format, ...)
 	strftime(logTimeStr, sizeof(logTimeStr), "[%Y-%b-%d %H:%M:%S %z] ", &logTimeTM);
 	
 	// Ignore anything logging at a higher (less important) level than we're running at
-//	if (logLevel > gMrbfsConfig->logLevel)
-//		return; 
+	if (logLevel > gMrbfsConfig->logLevel)
+		return; 
 		
 	pthread_mutex_lock(&gMrbfsConfig->logLock);
 
 	switch(logLevel)
 	{
+		case MRBFS_LOG_SYSTEM:
+			fprintf(gMrbfsConfig->logFile, "%s**SYSTEM** ", logTimeStr);
+			break;
+					
 		case MRBFS_LOG_ERROR:
 			fprintf(gMrbfsConfig->logFile, "%s**ERROR** ", logTimeStr);
 			break;
@@ -79,5 +83,8 @@ void mrbfsSingleInitLogging()
 	pthread_mutexattr_settype(&lockAttr, PTHREAD_MUTEX_ADAPTIVE_NP);
 	pthread_mutex_init(&gMrbfsConfig->logLock, &lockAttr);
 	pthread_mutexattr_destroy(&lockAttr);	
+	
+	mrbfsLogMessage(MRBFS_LOG_SYSTEM, "Logging started at level %d", gMrbfsConfig->logLevel);
+	
 }
 

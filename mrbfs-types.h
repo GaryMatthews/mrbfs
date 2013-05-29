@@ -32,9 +32,10 @@ typedef unsigned short uint16_t;
 
 typedef enum
 {
-	MRBFS_LOG_ERROR   = 0,
-	MRBFS_LOG_WARNING = 1,
-	MRBFS_LOG_INFO    = 2,
+   MRBFS_LOG_SYSTEM  = 0,
+	MRBFS_LOG_ERROR   = 1,
+	MRBFS_LOG_WARNING = 2,
+	MRBFS_LOG_INFO    = 3,
 	MRBFS_LOG_DEBUG   = 7
 } mrbfsLogLevel;
 
@@ -202,6 +203,13 @@ typedef struct
 	char inputBuffer[BUS_TX_INPUT_BUFFER_SZ];
 	uint8_t bus;
 } MRBusFilePktTxLocalStorage;
+
+typedef struct
+{
+	const char* configFileStr;
+	int logLevel;
+
+} MRBFSFuseConfig;
 
 typedef struct 
 {
