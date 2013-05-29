@@ -189,6 +189,28 @@ Purpose:  This function should be called by any file
 
 *******************************************************/
 
+static void cleanCommandStr(const char* inStr, size_t inStrSz, char* outStr, size_t outStrSz)
+{
+	uint32_t i, j;
+
+	// Cleanse the incoming command string - remove spaces, tabs, line endings, and other crap
+	memset(outStr, 0, outStrSz);
+	
+	for(i=0, j=0; i<outStrSz-1; i++)
+	{
+		if (j >= inStrSz)
+			break;
+
+		if (inStr[j] == 0x0A || inStr[j] == 0x0C || inStr[j] == 0)
+			break;
+
+		if (isalnum(inStr[j]))
+			outStr[i] = toupper(inStr[j]);
+
+		j++;
+	}
+}
+
 void mrbfsFileNodeWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int dataSz)
 {
 	MRBFSBusNode* mrbfsNode = (MRBFSBusNode*)(mrbfsFileNode->nodeLocalStorage);
@@ -203,22 +225,7 @@ void mrbfsFileNodeWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int data
 	txPkt.pkt[MRBUS_PKT_SRC] = 0;  // A source of 0 will be replaced by the transmit drivers with the interface addresses
 	txPkt.pkt[MRBUS_PKT_DEST] = mrbfsNode->address;
 
-	// Cleanse the incoming command string - remove spaces, tabs, line endings, and other crap
-	memset(commandStr, 0, sizeof(commandStr));
-	
-	for(i=0, j=0; i<sizeof(commandStr)-1; i++)
-	{
-		if (j >= dataSz)
-			break;
-
-		if (data[j] == 0x0A || data[j] == 0x0C || data[j] == 0)
-			break;
-
-		if (isalnum(data[j]))
-			commandStr[i] = toupper(data[j]);
-
-		j++;
-	}
+	cleanCommandStr(data, dataSz, commandStr, sizeof(commandStr));
 
 	// The fastest way to see what file is getting written is to compare the FileNode pointers
 	// to files that we know about.
@@ -233,34 +240,72 @@ void mrbfsFileNodeWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int data
 	}
 	else
 	{
-		int found = 0;
-		for (i=0; i<nodeLocalStorage->zonesUsed; i++)
-		{
-			if (mrbfsFileNode == nodeLocalStorage->file_zones[i])
-			{
-			
-			// Do something here to manually start/stop zones
-				found = 1;
-				break;
-			}		
-		}
 
-		// If we didn't find it in the zones, try the programs
-		if (!found)
-		{
-			for (i=0; i<nodeLocalStorage->programsUsed; i++)
-			{
-				if (mrbfsFileNode == nodeLocalStorage->file_programs[i])
-				{
-			
-				// Do something here to manually start/stop zones
-					break;
-				}		
-			}
-		}
 	}
 	
 }
+
+
+
+
+void mrbfsFileZoneWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int dataSz)
+{
+	MRBFSBusNode* mrbfsNode = (MRBFSBusNode*)(mrbfsFileNode->nodeLocalStorage);
+	NodeLocalStorage* nodeLocalStorage = (NodeLocalStorage*)(mrbfsNode->nodeLocalStorage);
+	int i,j;
+	char commandStr[17];
+	MRBusPacket txPkt;
+	uint8_t xmit=0;
+	int found = -1;
+	uint16_t newRunTime = 0;
+	
+	cleanCommandStr(data, dataSz, commandStr, sizeof(commandStr));
+
+	for (i=0; i<nodeLocalStorage->zonesUsed; i++)
+	{
+		if (mrbfsFileNode == nodeLocalStorage->file_zones[i])
+		{
+			found = i;
+			break;
+		}		
+	}
+
+	// If we didn't find a file pointer match in the zones, bail
+	if (-1 == found)
+		return;
+
+
+	if (0 != (newRunTime = atoi(commandStr)))
+	{
+		// Numbers are assumed to be a new manual run request in minutes
+		// Do nothing, it's already handled in the assignment	
+	}
+	else if (0 == strcmp(commandStr, "Off"))
+	{
+		newRunTime = 0;
+	}
+	else
+		return;
+
+
+	newRunTime = min(newRunTime, 1091);
+
+	// Set up the packet - initialize and fill in a few key values
+	memset(&txPkt, 0, sizeof(MRBusPacket));
+	txPkt.bus = mrbfsNode->bus;
+	txPkt.pkt[MRBUS_PKT_SRC] = 0;  // A source of 0 will be replaced by the transmit drivers with the interface addresses
+	txPkt.pkt[MRBUS_PKT_DEST] = mrbfsNode->address;
+	txPkt.pkt[MRBUS_PKT_LEN] = 8;
+	txPkt.pkt[MRBUS_PKT_TYPE] = 'C';
+	txPkt.pkt[MRBUS_PKT_DATA] = 'M';
+	txPkt.pkt[MRBUS_PKT_DATA+1] = 0xFF & (newRunTime / 256);
+	txPkt.pkt[MRBUS_PKT_DATA+2] = 0xFF & newRunTime;
+	
+	if (nodeQueueTransmitPacket(mrbfsNode, &txPkt) < 0)
+		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_ERROR, "Node [%s] failed to send packet", mrbfsNode->nodeName);
+	
+}
+
 
 
 void mrbfsFileProgramWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int dataSz)
@@ -645,7 +690,6 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 	if (0 == strcmp(mrbfsNodeOptionGet(mrbfsNode, "suppress_units", "no"), "yes"))
 		nodeLocalStorage->suppressUnits = 1;
 
-
 	// File "rxCounter" - the rxCounter file node will be a simple read/write integer.  Writing a value to it will reset both
 	//  it and the rxPackets log file
 	nodeLocalStorage->file_rxCounter = (*mrbfsNode->mrbfsFilesystemAddFile)("rxCounter", FNODE_RW_VALUE_INT, mrbfsNode->path);
@@ -681,8 +725,8 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 		sprintf(zoneKeyname, "zone%02d_name", i+1);
 
 		zoneFilename = mrbfsNodeOptionGet(mrbfsNode, zoneKeyname, zoneDefaultFilename);
-		nodeLocalStorage->file_zones[i] = (*mrbfsNode->mrbfsFilesystemAddFile)(zoneFilename, FNODE_RO_VALUE_STR, mrbfsNode->path);
-		nodeLocalStorage->file_zones[i]->mrbfsFileNodeWrite = &mrbfsFileNodeWrite;
+		nodeLocalStorage->file_zones[i] = (*mrbfsNode->mrbfsFilesystemAddFile)(zoneFilename, FNODE_RW_VALUE_STR, mrbfsNode->path);
+		nodeLocalStorage->file_zones[i]->mrbfsFileNodeWrite = &mrbfsFileZoneWrite;
 		nodeLocalStorage->file_zones[i]->nodeLocalStorage = (void*)mrbfsNode;
 		nodeLocalStorage->zoneValueStr[i] = calloc(1, OUTPUT_VALUE_BUFFER_SZ);
 		nodeLocalStorage->file_zones[i]->value.valueStr = nodeLocalStorage->zoneValueStr[i];		
@@ -698,17 +742,7 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 	nodeLocalStorage->file_activeZoneBitmask->nodeLocalStorage = (void*)mrbfsNode;
 	nodeLocalStorage->file_activeZoneBitmask->value.valueInt = 0;
 
-	nodeLocalStorage->file_activeProgramList = (*mrbfsNode->mrbfsFilesystemAddFile)("activeProgramList", FNODE_RW_VALUE_STR, mrbfsNode->path);
-	nodeLocalStorage->file_activeProgramList->mrbfsFileNodeWrite = &mrbfsFileNodeWrite;
-	nodeLocalStorage->file_activeProgramList->nodeLocalStorage = (void*)mrbfsNode;
-	nodeLocalStorage->activeProgramListValueStr = calloc(1, MRB_H2O_PROGRAM_LIST_SZ);
-	nodeLocalStorage->file_activeProgramList->value.valueStr = nodeLocalStorage->activeProgramListValueStr;		
 
-	nodeLocalStorage->file_activeProgramBitmask = (*mrbfsNode->mrbfsFilesystemAddFile)("activeProgramBitmask", FNODE_RW_VALUE_STR, mrbfsNode->path);
-	nodeLocalStorage->file_activeProgramBitmask->mrbfsFileNodeWrite = &mrbfsFileNodeWrite;
-	nodeLocalStorage->file_activeProgramBitmask->nodeLocalStorage = (void*)mrbfsNode;
-	nodeLocalStorage->activeProgramBitmaskValueStr = calloc(1, MRB_H2O_PROGRAM_LIST_SZ );
-	nodeLocalStorage->file_activeProgramBitmask->value.valueStr = nodeLocalStorage->activeProgramBitmaskValueStr;		
 
 	nodeLocalStorage->programsUsed = atoi(mrbfsNodeOptionGet(mrbfsNode, "programs_used", "64"));
 
@@ -738,6 +772,18 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 		nodeLocalStorage->programValueStr[i] = calloc(1, OUTPUT_VALUE_BUFFER_SZ);
 		nodeLocalStorage->file_programs[i]->value.valueStr = nodeLocalStorage->programValueStr[i];
 	}
+
+	nodeLocalStorage->file_activeProgramList = (*mrbfsNode->mrbfsFilesystemAddFile)("activeProgramList", FNODE_RO_VALUE_STR, mrbfsNode->path);
+	nodeLocalStorage->file_activeProgramList->nodeLocalStorage = (void*)mrbfsNode;
+	nodeLocalStorage->activeProgramListValueStr = calloc(1, MRB_H2O_PROGRAM_LIST_SZ);
+	nodeLocalStorage->file_activeProgramList->value.valueStr = nodeLocalStorage->activeProgramListValueStr;		
+
+	nodeLocalStorage->file_activeProgramBitmask = (*mrbfsNode->mrbfsFilesystemAddFile)("activeProgramBitmask", FNODE_RO_VALUE_STR, mrbfsNode->path);
+	nodeLocalStorage->file_activeProgramBitmask->nodeLocalStorage = (void*)mrbfsNode;
+	nodeLocalStorage->activeProgramBitmaskValueStr = calloc(1, MRB_H2O_PROGRAM_LIST_SZ );
+	nodeLocalStorage->file_activeProgramBitmask->value.valueStr = nodeLocalStorage->activeProgramBitmaskValueStr;		
+
+
 
 	nodeLocalStorage->busVoltageValue = calloc(1, OUTPUT_VALUE_BUFFER_SZ);	
 	nodeLocalStorage->file_busVoltage = (*mrbfsNode->mrbfsFilesystemAddFile)("mrbus_voltage", FNODE_RO_VALUE_STR, mrbfsNode->path);
@@ -1017,8 +1063,16 @@ void nodeResetFilesNoData(MRBFSBusNode* mrbfsNode)
 	for(i=0; i<nodeLocalStorage->programsUsed; i++)
 		strcpy(nodeLocalStorage->programValueStr[i], "No Data\n");
 
+	for(i=0; i<MRB_H2O_MAX_PROGRAMS; i++)
+		nodeLocalStorage->programCacheTimers[i] = 0;
+
 	strcpy(nodeLocalStorage->busVoltageValue, "No Data\n");
 	strcpy(nodeLocalStorage->activeZoneListValueStr, "No Data\n");
+	nodeLocalStorage->file_activeZoneBitmask->value.valueInt = 0;
+
+	strcpy(nodeLocalStorage->activeProgramListValueStr, "No Data\n");
+	strcpy(nodeLocalStorage->activeProgramBitmaskValueStr, "0\n");
+	nodeLocalStorage->activeProgramBitmask = 0;
 }
 
 
