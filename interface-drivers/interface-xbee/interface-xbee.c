@@ -147,7 +147,7 @@ int getBaudFromString(const char* baudRateStr, speed_t* baudRate)
 		}
 	}
 	
-	*baudRate = B115200;
+	*baudRate = B57600;
 	return(1);
 }
 
