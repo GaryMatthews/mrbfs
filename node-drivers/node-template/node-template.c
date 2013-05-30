@@ -36,8 +36,10 @@ LICENSE:
 #include <stdio.h>
 #include <pthread.h>
 #include <unistd.h>
+#include <stdint.h>
 #include "mrbfs-module.h"
 #include "mrbfs-pktqueue.h"
+#include "node-helpers.h"
 
 #define MRBFS_NODE_DRIVER_NAME   "node-template"
 
@@ -45,8 +47,6 @@ LICENSE:
  Internal Helper Function Headers - may or may not be helpful to your module
 *******************************************************/
 
-int trimNewlines(char* str, int trimval);
-int nodeQueueTransmitPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* txPkt);
 void nodeResetFilesNoData(MRBFSBusNode* mrbfsNode);
 // ~83 bytes per packet, and hold 25
 #define RX_PKT_BUFFER_SZ  (83 * 25)  
@@ -181,7 +181,7 @@ void mrbfsFileNodeWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int data
 		txPkt.pkt[MRBUS_PKT_DEST] = mrbfsNode->address;
 		txPkt.pkt[MRBUS_PKT_LEN] = 6;
 		txPkt.pkt[MRBUS_PKT_TYPE] = 'A';
-		if (nodeQueueTransmitPacket(mrbfsNode, &txPkt) < 0)
+		if (mrbfsNodeQueueTransmitPacket(mrbfsNode, &txPkt) < 0)
 			(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_ERROR, "Node [%s] failed to send packet", mrbfsNode->nodeName);
 	}
 }
@@ -253,7 +253,7 @@ size_t mrbfsFileNodeRead(MRBFSFileNode* mrbfsFileNode, char *buf, size_t size, o
 		mrbusPacketQueueInitialize(&nodeLocalStorage->rxq);
 
 		// Once we're listening to the bus for responses, send our query
-		if (nodeQueueTransmitPacket(mrbfsNode, &txPkt) < 0)
+		if (mrbfsNodeQueueTransmitPacket(mrbfsNode, &txPkt) < 0)
 			(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_ERROR, "Node [%s] failed to send packet", mrbfsNode->nodeName);
 
 		// Now, wait.  Spin in a loop with a sleep so we don't hog the processor
@@ -302,35 +302,6 @@ size_t mrbfsFileNodeRead(MRBFSFileNode* mrbfsFileNode, char *buf, size_t size, o
 
 	return(size);
 }
-
-/*******************************************************
-Internal Function:  nodeOptionGet()
-
-Purpose:  
- Returns a const pointer to the string value corresponding
- to requested key value, or equal to the defaultValue
- being passed in if not found.  These come out of 
- "option" sections in the mrbfs.conf file
-
- If your node doesn't implement any optional parameters,
- or reads them in some other way, this can be omitted.
-
-*******************************************************/
-
-const char* mrbfsNodeOptionGet(MRBFSBusNode* mrbfsNode, const char* nodeOptionKey, const char* defaultValue)
-{
-	int i;
-	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] - [%d] node options, looking for [%s]", mrbfsNode->nodeName, mrbfsNode->nodeOptions, nodeOptionKey);
-
-	for(i=0; i<mrbfsNode->nodeOptions; i++)
-	{
-		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] - node option [%d], comparing key [%s] to [%s]", mrbfsNode->nodeName, mrbfsNode->nodeOptions, nodeOptionKey, mrbfsNode->nodeOptionList[i].key);
-		if (0 == strcmp(nodeOptionKey, mrbfsNode->nodeOptionList[i].key))
-			return(mrbfsNode->nodeOptionList[i].value);
-	}
-	return(defaultValue);
-}
-
 
 /*******************************************************
 Public Function:  mrbfsNodeInit()
@@ -392,27 +363,19 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 
 	// File "rxCounter" - the rxCounter file node will be a simple read/write integer.  Writing a value to it will reset both
 	//  it and the rxPackets log file
-	nodeLocalStorage->file_rxCounter = (*mrbfsNode->mrbfsFilesystemAddFile)("rxCounter", FNODE_RW_VALUE_INT, mrbfsNode->path);
-	nodeLocalStorage->file_rxCounter->value.valueInt = 0; // Initialize the value - initially on load we've seen no packets
-	nodeLocalStorage->file_rxCounter->mrbfsFileNodeWrite = &mrbfsFileNodeWrite; // Associate this node's mrbfsFileNodeWrite for write callbacks
-	nodeLocalStorage->file_rxCounter->nodeLocalStorage = (void*)mrbfsNode;  // Associate this node's memory with the filenode's local storage
-
+	nodeLocalStorage->file_rxCounter = mrbfsNodeCreateFile_RW_INT(mrbfsNode, "rxCounter", &mrbfsFileNodeWrite);
+	
 	// File "rxPackets" - the rxPackets file node will be a read-only string node that holds a log of the last 25
 	//  packets received.  It will be backed by a buffer in nodeLocalStorage.
 	nodeLocalStorage->file_rxPackets = (*mrbfsNode->mrbfsFilesystemAddFile)("rxPackets", FNODE_RO_VALUE_STR, mrbfsNode->path);
 	nodeLocalStorage->file_rxPackets->value.valueStr = nodeLocalStorage->rxPacketStr;
 
 	// File "sendPing" will send a ping when written.  Reading it doesn't mean much, so we'll just make it a r/w integer
-	nodeLocalStorage->file_sendPing = (*mrbfsNode->mrbfsFilesystemAddFile)("sendPing", FNODE_RW_VALUE_INT, mrbfsNode->path);
-	nodeLocalStorage->file_sendPing->mrbfsFileNodeWrite = &mrbfsFileNodeWrite; // Associate this node's mrbfsFileNodeWrite for write callbacks
-	nodeLocalStorage->file_sendPing->nodeLocalStorage = (void*)mrbfsNode; // Associate this node's memory with the filenode's local storage
+	nodeLocalStorage->file_sendPing = mrbfsNodeCreateFile_RW_INT(mrbfsNode, "sendPing", &mrbfsFileNodeWrite);
 
 	// File "eepromNodeAddr" demonstrates a complex readback file that must communicate across the bus to get its answer
 	//  It's a readback file.
-	nodeLocalStorage->file_eepromNodeAddr = (*mrbfsNode->mrbfsFilesystemAddFile)("eepromNodeAddr", FNODE_RO_VALUE_READBACK, mrbfsNode->path);
-	nodeLocalStorage->file_eepromNodeAddr->mrbfsFileNodeWrite = &mrbfsFileNodeWrite; // Associate this node's mrbfsFileNodeWrite for write callbacks
-	nodeLocalStorage->file_eepromNodeAddr->mrbfsFileNodeRead = &mrbfsFileNodeRead; // Associate this node's mrbfsFileNodeWrite for read callbacks
-	nodeLocalStorage->file_eepromNodeAddr->nodeLocalStorage = (void*)mrbfsNode;// Associate this node's memory with the filenode's local storage
+	nodeLocalStorage->file_eepromNodeAddr = mrbfsNodeCreateFile_RW_READBACK(mrbfsNode, "eepromNodeAddr", mrbfsFileNodeRead, mrbfsFileNodeWrite);
 
 	// Return 0 to indicate success
 	return (0);
@@ -627,52 +590,6 @@ void nodeResetFilesNoData(MRBFSBusNode* mrbfsNode)
 {
 	NodeLocalStorage* nodeLocalStorage = mrbfsNode->nodeLocalStorage;
 //	strcpy(nodeLocalStorage->tempSensorValue, "No Data\n");
-}
-
-
-/*******************************************************
-Internal Function:  nodeQueueTransmitPacket()
-
-Purpose: Node helper function that wraps some of the 
- transmission error checking
-
-*******************************************************/
-
-int nodeQueueTransmitPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* txPkt)
-{
-	int success = 0;
-	if (NULL == mrbfsNode->mrbfsNodeTxPacket)
-		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_INFO, "Node [%s] can't transmit - no mrbfsNodeTxPacket function defined", mrbfsNode->nodeName);
-	else
-	{
-		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_INFO, "Node [%s] sending packet (dest=0x%02X)", mrbfsNode->nodeName, mrbfsNode->address);
-		(*mrbfsNode->mrbfsNodeTxPacket)(txPkt);
-		return(0);
-	}
-	return(-1);
-}
-
-/*******************************************************
-Internal Function:  trimNewlines()
-
-Purpose: Used to trim the logging buffer for file 'rxPackets'
- to (trimval) number of lines.
-
-*******************************************************/
-
-int trimNewlines(char* str, int trimval)
-{
-	int newlines=0;
-	while(0 != *str)
-	{
-		if ('\n' == *str)
-			newlines++;
-		if (newlines >= trimval)
-			*++str = 0;
-		else
-			++str;
-	}
-	return(newlines);
 }
 
 

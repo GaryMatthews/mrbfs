@@ -2,25 +2,27 @@
 # gcc -fPIC -shared -I/usr/local/include/uvsdk test.c -luvsdk -o test.module
 
 ### Build options
-CC		=       gcc
-INCLUDES        =       -I. -I../../ -I../../libconfuse/src/
-CFLAGS		=	-fPIC -shared -O2 $(INCLUDES)
+CC    =       gcc
+INCLUDES        =       -I. -I../../ -I../../libconfuse/src/ -I../node-common/
+CFLAGS      =  -fPIC -shared -O2 $(INCLUDES) -Wall
 
-LDFLAGS         =
-BIN_TARGET	=	../../modules/node-generic.so
+LDFLAGS         = -lm
+BIN_TARGET  =  ../../modules/node-generic.so
 
-MODULE_SRC      =       $(shell find ./ -name "*.c" -print)
+MODULE_SRC      =       $(shell find ./ -name "*.c" -print) ../../mrbfs-pktqueue.c ../node-common/node-helpers.c
 MODULE_OBJ      =       $(MODULE_SRC:%.c=%.o)
 
-### generic targets
-all:    $(BIN_TARGET)
+### rts targets
+all:    $(MODULE_OBJ)
+	ld -shared -soname node-generic -lm -o $(BIN_TARGET) -lc $(MODULE_OBJ)
 
 $(BIN_TARGET): $(MODULE_OBJ)
 	$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $(BIN_TARGET)
 
-clean: 
+clean:
 	rm -f $(MODULE_OBJ)
 	rm -f *.o
-	rm -f *.core
+	rm -f ../node-common/*.o
+	rm -f *.core	
 	rm -f *~
 	rm -f $(BIN_TARGET)
