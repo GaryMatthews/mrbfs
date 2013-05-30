@@ -4,7 +4,7 @@
 ### Build options
 CC		=       gcc
 INCLUDES        =       -I. -I../../ -I../../libconfuse/src/
-CFLAGS		=	-fPIC -shared -O2 $(INCLUDES)
+CFLAGS		=	-fPIC -shared -O2 $(INCLUDES) -D_FILE_OFFSET_BITS=64 -D_REENTRANT -D_GNU_SOURCE -pthread
 
 LDFLAGS         =
 BIN_TARGET	=	../../modules/interface-xbee.so
@@ -14,7 +14,7 @@ MODULE_OBJ      =       $(MODULE_SRC:%.c=%.o)
 
 ### generic targets
 all:	$(MODULE_OBJ)
-	ld -shared -soname node-th -lm -o $(BIN_TARGET) -lc $(MODULE_OBJ)
+	ld -shared -soname interface-xbee -lm -o $(BIN_TARGET) -lc $(MODULE_OBJ)
 
 $(BIN_TARGET): $(MODULE_OBJ)
 	$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $(BIN_TARGET)
