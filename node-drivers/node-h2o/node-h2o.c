@@ -98,6 +98,10 @@ typedef struct
 	MRBFSFileNode* file_activeZoneList;
 	char* activeZoneListValueStr;	
 
+	MRBFSFileNode* file_enabledProgramList;
+	char* enabledProgramListValueStr;	
+	time_t enabledProgramCacheTimer;
+
 	MRBFSFileNode* file_activeZoneBitmask;
 	
 	MRBFSFileNode* file_activeProgramList;
@@ -323,6 +327,7 @@ void mrbfsFileProgramWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int d
 	txPkt.bus = mrbfsNode->bus;
 	txPkt.pkt[MRBUS_PKT_SRC] = 0;  // A source of 0 will be replaced by the transmit drivers with the interface addresses
 	txPkt.pkt[MRBUS_PKT_DEST] = mrbfsNode->address;
+	txPkt.pkt[MRBUS_PKT_LEN] = 16;     // Length of 16
 	txPkt.pkt[MRBUS_PKT_TYPE] = 'C';
 	txPkt.pkt[MRBUS_PKT_DATA] = 'W';
 	
@@ -400,6 +405,63 @@ void mrbfsFileProgramWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int d
 	}
 
 	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] sending program [%d] programming packet", mrbfsNode->nodeName, program);
+	
+}
+
+
+void mrbfsFileEnabledProgramWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int dataSz)
+{
+	MRBFSBusNode* mrbfsNode = (MRBFSBusNode*)(mrbfsFileNode->nodeLocalStorage);
+	NodeLocalStorage* nodeLocalStorage = (NodeLocalStorage*)(mrbfsNode->nodeLocalStorage);
+	int i;
+	char commandStr[17];
+	MRBusPacket txPkt;
+	int found = -1;
+	uint16_t newRunTime = 0;
+	
+	cleanCommandStr(data, dataSz, commandStr, sizeof(commandStr));
+
+	for (i=0; i<nodeLocalStorage->zonesUsed; i++)
+	{
+		if (mrbfsFileNode == nodeLocalStorage->file_zones[i])
+		{
+			found = i;
+			break;
+		}		
+	}
+
+	// If we didn't find a file pointer match in the zones, bail
+	if (-1 == found)
+		return;
+
+
+	if (0 != (newRunTime = atoi(commandStr)))
+	{
+		// Numbers are assumed to be a new manual run request in minutes
+		// Do nothing, it's already handled in the assignment	
+	}
+	else if (0 == strcmp(commandStr, "Off"))
+	{
+		newRunTime = 0;
+	}
+	else
+		return;
+
+	newRunTime = MIN(newRunTime, 1091);
+
+	// Set up the packet - initialize and fill in a few key values
+	memset(&txPkt, 0, sizeof(MRBusPacket));
+	txPkt.bus = mrbfsNode->bus;
+	txPkt.pkt[MRBUS_PKT_SRC] = 0;  // A source of 0 will be replaced by the transmit drivers with the interface addresses
+	txPkt.pkt[MRBUS_PKT_DEST] = mrbfsNode->address;
+	txPkt.pkt[MRBUS_PKT_LEN] = 8;
+	txPkt.pkt[MRBUS_PKT_TYPE] = 'C';
+	txPkt.pkt[MRBUS_PKT_DATA] = 'M';
+	txPkt.pkt[MRBUS_PKT_DATA+1] = 0xFF & (newRunTime / 256);
+	txPkt.pkt[MRBUS_PKT_DATA+2] = 0xFF & newRunTime;
+	
+	if (mrbfsNodeQueueTransmitPacket(mrbfsNode, &txPkt) < 0)
+		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_ERROR, "Node [%s] failed to send packet", mrbfsNode->nodeName);
 	
 }
 
@@ -489,7 +551,7 @@ size_t mrbfsFileProgramRead(MRBFSFileNode* mrbfsFileNode, char *buf, size_t size
 		txPkt.bus = mrbfsNode->bus;    // Important to set the transmit pkt's bus number so it goes to the right transmitters
 		txPkt.pkt[MRBUS_PKT_SRC] = 0;  // A source of 0 will be replaced by the transmit drivers with the interface addresses
 		txPkt.pkt[MRBUS_PKT_DEST] = mrbfsNode->address; // The destination is the node's current address
-		txPkt.pkt[MRBUS_PKT_LEN] = 7;     // Length of 7
+		txPkt.pkt[MRBUS_PKT_LEN] = 8;     // Length of 7
 		txPkt.pkt[MRBUS_PKT_TYPE] = 'C';  // Packet type of Command
 		txPkt.pkt[MRBUS_PKT_DATA] = 'R';  // Subtype of 'R' - program read
 		txPkt.pkt[MRBUS_PKT_DATA+1] = (uint8_t)program;  // Subtype of 'R' - program read
@@ -573,6 +635,100 @@ size_t mrbfsFileProgramRead(MRBFSFileNode* mrbfsFileNode, char *buf, size_t size
 	
 
 }
+
+int filterEnableReadPkt(MRBusPacket* rxPkt, uint8_t srcAddress, void* otherFilterData)
+{
+	if (rxPkt->pkt[MRBUS_PKT_SRC] == srcAddress 
+		&& 'c' == rxPkt->pkt[MRBUS_PKT_TYPE]
+		&& 'g' == rxPkt->pkt[MRBUS_PKT_DATA])
+		return(1);
+	return(0);
+}
+
+size_t mrbfsFileEnabledProgramRead(MRBFSFileNode* mrbfsFileNode, char *buf, size_t size, off_t offset)
+{
+	MRBFSBusNode* mrbfsNode = (MRBFSBusNode*)(mrbfsFileNode->nodeLocalStorage);
+	NodeLocalStorage* nodeLocalStorage = (NodeLocalStorage*)(mrbfsNode->nodeLocalStorage);
+	MRBusPacket rxPkt, txPkt;
+	int i;
+	uint8_t program = 0xFF;
+	int foundResponse = 0;
+	char responseBuffer[MRB_H2O_PROGRAM_LIST_SZ+1];
+	size_t len=0;
+	time_t currentTime = time(NULL);
+
+	// If it doesn't match the enabled program list file pointer, throw a WTF?
+	if (mrbfsFileNode != nodeLocalStorage->file_enabledProgramList)
+		return -ENOENT;
+
+	memset(responseBuffer, 0, sizeof(responseBuffer));
+
+	if ((currentTime - nodeLocalStorage->enabledProgramCacheTimer) <= nodeLocalStorage->cacheSeconds)
+	{
+		// If the cache is still hot, use it
+		strncpy(responseBuffer, nodeLocalStorage->enabledProgramListValueStr, sizeof(responseBuffer)-1);
+	}
+	else
+	{
+		// Not cached, go over the network to get it
+		// Set up the packet - initialize and fill in a few key values
+		memset(&txPkt, 0, sizeof(MRBusPacket));
+		txPkt.bus = mrbfsNode->bus;    // Important to set the transmit pkt's bus number so it goes to the right transmitters
+		txPkt.pkt[MRBUS_PKT_SRC] = 0;  // A source of 0 will be replaced by the transmit drivers with the interface addresses
+		txPkt.pkt[MRBUS_PKT_DEST] = mrbfsNode->address; // The destination is the node's current address
+		txPkt.pkt[MRBUS_PKT_LEN] = 7;     // Length of 7
+		txPkt.pkt[MRBUS_PKT_TYPE] = 'C';  // Packet type of Command
+		txPkt.pkt[MRBUS_PKT_DATA] = 'G';  // Subtype of 'G' - enables read
+
+		foundResponse = mrbfsNodeTxAndGetResponse(mrbfsNode, &nodeLocalStorage->rxq, &nodeLocalStorage->requestRXFeed, &txPkt, &rxPkt, 1000, 3, &filterEnableReadPkt, NULL);
+
+		if(!foundResponse)
+		{
+			(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_WARNING, "Node [%s], no response to program enable read request", mrbfsNode->nodeName);
+			sprintf(responseBuffer, "No data\n");			
+			nodeLocalStorage->enabledProgramCacheTimer = 0;
+		} 
+		else
+		{
+			char* responseBufferPtr = responseBuffer;
+			for(i=0; i<64; i++)
+			{
+				if (txPkt.pkt[(MRBUS_PKT_DATA+1) + 7 - (i/8)] & (1<<(i%8)))
+				{
+					if (responseBufferPtr == responseBuffer)
+					{
+						sprintf(responseBufferPtr, "%02d", i+1);
+						responseBufferPtr += 2;
+					}
+					else
+					{
+						sprintf(responseBufferPtr, ",%02d", i+1);
+						responseBufferPtr += 3;
+					}
+				}
+			}
+	
+			memset(nodeLocalStorage->enabledProgramListValueStr, 0, MRB_H2O_PROGRAM_LIST_SZ);
+			strncpy(nodeLocalStorage->enabledProgramListValueStr, responseBuffer, MRB_H2O_PROGRAM_LIST_SZ-1);
+			nodeLocalStorage->enabledProgramCacheTimer= currentTime;
+		}
+	}
+
+	// This is common read() code that takes whatever's in responseBuffer and puts it into the buffer being
+	// given to us by the filesystem
+	len = strlen(responseBuffer);
+	if (offset < len) 
+	{
+		if (offset + size > len)
+			size = len - offset;
+		memcpy(buf, responseBuffer + offset, size);
+	} else
+		size = 0;		
+
+	return(size);
+}
+
+
 
 size_t mrbfsFileNodeRead(MRBFSFileNode* mrbfsFileNode, char *buf, size_t size, off_t offset)
 {
@@ -716,13 +872,16 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 
 		programFilename = mrbfsNodeOptionGet(mrbfsNode, programKeyname, programDefaultFilename);
 		nodeLocalStorage->file_programs[i] = mrbfsNodeCreateFile_RW_READBACK(mrbfsNode, programFilename, &mrbfsFileProgramRead, &mrbfsFileProgramWrite);
-		// Readbacks generally don't have attached storage - since we use it for caching, allocate and assign here
+				// Readbacks generally don't have attached storage - since we use it for caching, allocate and assign here
 		nodeLocalStorage->file_programs[i]->value.valueStr = nodeLocalStorage->programValueStr[i] = calloc(1, OUTPUT_VALUE_BUFFER_SZ);
 	}
 
-	nodeLocalStorage->file_activeZoneList = mrbfsNodeCreateFile_RO_STR(mrbfsNode, "activeProgramList", &nodeLocalStorage->activeProgramListValueStr, MRB_H2O_PROGRAM_LIST_SZ);
-	nodeLocalStorage->file_activeZoneList = mrbfsNodeCreateFile_RO_STR(mrbfsNode, "activeProgramBitmask", &nodeLocalStorage->activeProgramBitmaskValueStr, MRB_H2O_PROGRAM_LIST_SZ);
-	nodeLocalStorage->file_activeZoneList = mrbfsNodeCreateFile_RO_STR(mrbfsNode, "mrbus_voltage", &nodeLocalStorage->busVoltageValue, OUTPUT_VALUE_BUFFER_SZ);
+	nodeLocalStorage->file_enabledProgramList = mrbfsNodeCreateFile_RW_READBACK(mrbfsNode, "enabledProgramList", &mrbfsFileEnabledProgramRead, &mrbfsFileEnabledProgramWrite);
+	nodeLocalStorage->file_enabledProgramList->value.valueStr = nodeLocalStorage->enabledProgramListValueStr = calloc(1, MRB_H2O_PROGRAM_LIST_SZ);
+
+	nodeLocalStorage->file_activeProgramList = mrbfsNodeCreateFile_RO_STR(mrbfsNode, "activeProgramList", &nodeLocalStorage->activeProgramListValueStr, MRB_H2O_PROGRAM_LIST_SZ);
+	nodeLocalStorage->file_activeProgramBitmask = mrbfsNodeCreateFile_RO_STR(mrbfsNode, "activeProgramBitmask", &nodeLocalStorage->activeProgramBitmaskValueStr, MRB_H2O_PROGRAM_LIST_SZ);
+	nodeLocalStorage->file_busVoltage = mrbfsNodeCreateFile_RO_STR(mrbfsNode, "mrbus_voltage", &nodeLocalStorage->busVoltageValue, OUTPUT_VALUE_BUFFER_SZ);
 
 	nodeResetFilesNoData(mrbfsNode);
 
