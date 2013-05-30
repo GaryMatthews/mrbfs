@@ -1,6 +1,8 @@
 #ifndef _MRBFS_TYPES_H
 #define _MRBFS_TYPES_H
 
+#include <stdint.h>
+
 #define MRBFS_MAX_PACKET_LEN 0x14
 #define MRBFS_MAX_INTERFACES   16
 #define MRBFS_MAX_BUS_NODES    256
@@ -20,15 +22,8 @@
 #define MRBFS_INTERFACE_DRIVER_VERSION   0x01000001
 #define MRBFS_NODE_DRIVER_VERSION        0x02000001
 
-typedef unsigned long UINT32 ;
-typedef unsigned char UINT8 ;
-#ifndef uint8_t
-typedef unsigned char uint8_t;
-#endif
-#ifndef uint16_t
-typedef unsigned short uint16_t;
-#endif
-
+typedef uint32_t UINT32 ;
+typedef uint8_t UINT8 ;
 
 typedef enum
 {
@@ -109,6 +104,8 @@ typedef struct MRBFSFileNode
 	MRBFSFileNodeType fileType;
 	time_t updateTime;
 	time_t accessTime;
+//	mrbfsFileNodeWriteCallback mrbfsFileNodeWrite;
+//	mrbfsFileNodeReadCallback mrbfsFileNodeRead;
 	void (*mrbfsFileNodeWrite)(struct MRBFSFileNode*, const char* data, int dataSz);
 	size_t (*mrbfsFileNodeRead)(struct MRBFSFileNode* mrbfsFileNode, char *buf, size_t size, off_t offset);
 	void* nodeLocalStorage;
@@ -116,6 +113,8 @@ typedef struct MRBFSFileNode
 	struct MRBFSFileNode* siblingPtr;
 } MRBFSFileNode;
 
+typedef void (*mrbfsFileNodeWriteCallback)(struct MRBFSFileNode*, const char* data, int dataSz);
+typedef size_t (*mrbfsFileNodeReadCallback)(struct MRBFSFileNode* mrbfsFileNode, char *buf, size_t size, off_t offset);
 
 typedef struct MRBFSBusNode
 {
@@ -234,6 +233,14 @@ typedef struct
 	
 } MRBFSConfig;
 
+
+#ifndef MAX
+#define MAX(a,b) (((a)>(b))?(a):(b))
+#endif
+
+#ifndef MIN
+#define MIN(a,b) (((a)<(b))?(a):(b))
+#endif
 
 #endif
 

@@ -197,7 +197,6 @@ MRBFSFileNode* mrbfsNodeCreateFile_RW_READBACK(MRBFSBusNode* mrbfsNode, const ch
 	return(newFileNode);
 }
 
-
 MRBFSFileNode* mrbfsNodeCreateFile_RO_INT(MRBFSBusNode* mrbfsNode, const char* fileNameStr)
 {
 	MRBFSFileNode* newFileNode = (*mrbfsNode->mrbfsFilesystemAddFile)(fileNameStr, FNODE_RO_VALUE_INT, mrbfsNode->path);

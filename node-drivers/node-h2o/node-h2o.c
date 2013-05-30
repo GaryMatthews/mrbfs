@@ -49,11 +49,10 @@ LICENSE:
  Internal Helper Function Headers - may or may not be helpful to your module
 *******************************************************/
 
-int trimNewlines(char* str, int trimval);
 void nodeResetFilesNoData(MRBFSBusNode* mrbfsNode);
+
 // ~83 bytes per packet, and hold 25
 #define RX_PKT_BUFFER_SZ  (83 * 25)  
-
 #define OUTPUT_VALUE_BUFFER_SZ 33
 
 
@@ -639,18 +638,12 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 
 	// File "rxCounter" - the rxCounter file node will be a simple read/write integer.  Writing a value to it will reset both
 	//  it and the rxPackets log file
-	nodeLocalStorage->file_rxCounter = (*mrbfsNode->mrbfsFilesystemAddFile)("rxCounter", FNODE_RW_VALUE_INT, mrbfsNode->path);
-	nodeLocalStorage->file_rxCounter->value.valueInt = 0; // Initialize the value - initially on load we've seen no packets
-	nodeLocalStorage->file_rxCounter->mrbfsFileNodeWrite = &mrbfsFileNodeWrite; // Associate this node's mrbfsFileNodeWrite for write callbacks
-	nodeLocalStorage->file_rxCounter->nodeLocalStorage = (void*)mrbfsNode;  // Associate this node's memory with the filenode's local storage
-
-
+	nodeLocalStorage->file_rxCounter = mrbfsNodeCreateFile_RW_INT(mrbfsNode, "rxCounter", &mrbfsFileNodeWrite);
 
 	// File "rxPackets" - the rxPackets file node will be a read-only string node that holds a log of the last 25
 	//  packets received.  It will be backed by a buffer in nodeLocalStorage.
 	nodeLocalStorage->file_rxPackets = (*mrbfsNode->mrbfsFilesystemAddFile)("rxPackets", FNODE_RO_VALUE_STR, mrbfsNode->path);
 	nodeLocalStorage->file_rxPackets->value.valueStr = nodeLocalStorage->rxPacketStr;
-
 
 	// Initialize the 16 zones
 	if (nodeLocalStorage->zonesUsed < 0 || nodeLocalStorage->zonesUsed > MRB_H2O_MAX_ZONES)

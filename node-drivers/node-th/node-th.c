@@ -321,21 +321,6 @@ int mrbfsNodeDestroy(MRBFSBusNode* mrbfsNode)
 	return (0);
 }
 
-int trimNewlines(char* str, int trimval)
-{
-	int newlines=0;
-	while(0 != *str)
-	{
-		if ('\n' == *str)
-			newlines++;
-		if (newlines >= trimval)
-			*++str = 0;
-		else
-			++str;
-	}
-	return(newlines);
-}
-
 // This function may be called simultaneously by multiple packet receivers.  Make sure anything affecting
 // the node as a whole is interlocked with mutexes.
 
