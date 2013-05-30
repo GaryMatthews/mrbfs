@@ -14,7 +14,7 @@ MODULE_OBJ      =       $(MODULE_SRC:%.c=%.o)
 
 ### generic targets
 all:	$(MODULE_OBJ)
-	ld -shared -soname interface-xbee -lm -o $(BIN_TARGET) -lc $(MODULE_OBJ)
+	ld -shared -soname interface-xbee -lm -lpthread -o $(BIN_TARGET) -lc $(MODULE_OBJ)
 
 $(BIN_TARGET): $(MODULE_OBJ)
 	$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $(BIN_TARGET)
