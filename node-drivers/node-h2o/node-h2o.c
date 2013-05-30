@@ -40,6 +40,7 @@ LICENSE:
 #include <stdint.h>
 #include <inttypes.h>
 
+#include "slre.h"
 #include "mrbfs-module.h"
 #include "mrbfs-pktqueue.h"
 #include "node-helpers.h"
@@ -307,93 +308,98 @@ void mrbfsFileProgramWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int d
 {
 	MRBFSBusNode* mrbfsNode = (MRBFSBusNode*)(mrbfsFileNode->nodeLocalStorage);
 	NodeLocalStorage* nodeLocalStorage = (NodeLocalStorage*)(mrbfsNode->nodeLocalStorage);
-	int i,j;
-	int found = -1;
-	char commandStr[65];
 	MRBusPacket txPkt;
+	int i,j;
+	uint8_t program = 0xFF;
+	char commandStr[65];
+	int startHour=0, startMinute=0, endHour=0, endMinute=0, zoneMask=0;
+	char days[12];
+	const char *error;
 
 	cleanCommandStr(data, dataSz, commandStr, sizeof(commandStr));
-
-	for (i=0; i<nodeLocalStorage->programsUsed; i++)
-	{
-		if (mrbfsFileNode == nodeLocalStorage->file_programs[i])
-		{
-			found = i;
-			break;
-		}		
-	}
-
-	// If we didn't find a file pointer match in the programs, bail, don't know where this came from
-	if (-1 == found)
-		return;
-
-	// Program input in the form of HHMM-HHMM Zzz....
-	
-
-
 
 	// Set up the packet - initialize and fill in a few key values
 	memset(&txPkt, 0, sizeof(MRBusPacket));
 	txPkt.bus = mrbfsNode->bus;
 	txPkt.pkt[MRBUS_PKT_SRC] = 0;  // A source of 0 will be replaced by the transmit drivers with the interface addresses
 	txPkt.pkt[MRBUS_PKT_DEST] = mrbfsNode->address;
-
-	// Cleanse the incoming command string - remove spaces, tabs, line endings, and other crap
-	memset(commandStr, 0, sizeof(commandStr));
+	txPkt.pkt[MRBUS_PKT_TYPE] = 'C';
+	txPkt.pkt[MRBUS_PKT_DATA] = 'W';
 	
-	for(i=0, j=0; i<sizeof(commandStr)-1; i++)
+	
+	for (i=0; i<nodeLocalStorage->programsUsed; i++)
 	{
-		if (j >= dataSz)
+		if (mrbfsFileNode == nodeLocalStorage->file_programs[i])
+		{
+			program = i;
 			break;
-
-		if (data[j] == 0x0A || data[j] == 0x0C || data[j] == 0)
-			break;
-
-		if (isalnum(data[j]))
-			commandStr[i] = toupper(data[j]);
-
-		j++;
+		}		
 	}
 
-	// The fastest way to see what file is getting written is to compare the FileNode pointers
-	// to files that we know about.
-	if (mrbfsFileNode == nodeLocalStorage->file_rxCounter)
+	// If we didn't find a file pointer match in the programs, bail, don't know where this came from
+	if (0xFF == program)
+		return;
+
+	// Program input in the form of HHMM-HHMM Zzz....
+	memset(days, 0, sizeof(days));
+	error = slre_match(0, "^\\s*([0-2][0-9])([0-5][0-9])-([0-2][0-9])([0-5][0-9])\\s*([2UMTWRFS]+)\\s*(\\d+)",
+				commandStr, strlen(commandStr),
+				SLRE_INT, sizeof(startHour), &startHour,
+				SLRE_INT, sizeof(startMinute), &startMinute,
+				SLRE_INT, sizeof(endHour), &endHour,
+				SLRE_INT, sizeof(endMinute), &endMinute,
+				SLRE_STRING,  sizeof(days), days,
+				SLRE_INT, sizeof(zoneMask), &zoneMask);
+
+	if (NULL != error || startHour > 23 || endHour > 23) 
 	{
-		// Example of a simple file write that resets the packet counter and packet log
-		if (0 == atoi(data))
-		{
-			memset(nodeLocalStorage->rxPacketStr, 0, RX_PKT_BUFFER_SZ);
-			mrbfsFileNode->value.valueInt = 0;
-		}
+		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_ERROR, "Node [%s] failed to parse program string [%s] - error [%s]", mrbfsNode->nodeName, commandStr, (NULL==error)?"ValueError":error);	
+		return;
 	}
-	else
+
+	txPkt.pkt[MRBUS_PKT_DATA+1] = (uint8_t)program;
+	txPkt.pkt[MRBUS_PKT_DATA+2] = 0; // Config byte, nothing defined here
+	txPkt.pkt[MRBUS_PKT_DATA+3] = startHour;
+	txPkt.pkt[MRBUS_PKT_DATA+4] = startMinute;	
+	txPkt.pkt[MRBUS_PKT_DATA+5] = endHour;
+	txPkt.pkt[MRBUS_PKT_DATA+6] = endMinute;	
+	txPkt.pkt[MRBUS_PKT_DATA+7] = (uint8_t)(zoneMask>>8);
+	txPkt.pkt[MRBUS_PKT_DATA+8] = (uint8_t)(zoneMask);
+
+	for(i=0; i<strlen(days); i++)
 	{
-		int found = 0;
-		for (i=0; i<nodeLocalStorage->zonesUsed; i++)
+		switch(days[i])
 		{
-			if (mrbfsFileNode == nodeLocalStorage->file_zones[i])
-			{
-			
-			// Do something here to manually start/stop zones
-				found = 1;
+			case 'S':
+				txPkt.pkt[MRBUS_PKT_DATA+9] |= 0x01;
 				break;
-			}		
-		}
-
-		// If we didn't find it in the zones, try the programs
-		if (!found)
-		{
-			for (i=0; i<nodeLocalStorage->programsUsed; i++)
-			{
-				if (mrbfsFileNode == nodeLocalStorage->file_programs[i])
-				{
-			
-				// Do something here to manually start/stop zones
-					break;
-				}		
-			}
+			case 'F':
+				txPkt.pkt[MRBUS_PKT_DATA+9] |= 0x02;
+				break;
+			case 'R':
+				txPkt.pkt[MRBUS_PKT_DATA+9] |= 0x04;
+				break;
+			case 'W':
+				txPkt.pkt[MRBUS_PKT_DATA+9] |= 0x08;
+				break;
+			case 'T':
+				txPkt.pkt[MRBUS_PKT_DATA+9] |= 0x10;
+				break;
+			case 'M':
+				txPkt.pkt[MRBUS_PKT_DATA+9] |= 0x20;
+				break;
+			case 'U':
+				txPkt.pkt[MRBUS_PKT_DATA+9] |= 0x40;
+				break;
+			case '2':
+				txPkt.pkt[MRBUS_PKT_DATA+9] |= 0x80;
+				break;
+			default:
+				break;
 		}
 	}
+
+	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] sending program [%d] programming packet", mrbfsNode->nodeName, program);
 	
 }
 
