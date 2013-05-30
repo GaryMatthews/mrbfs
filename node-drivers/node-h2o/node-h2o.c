@@ -408,46 +408,78 @@ void mrbfsFileProgramWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int d
 	
 }
 
+void numericParseRecurse(uint64_t* mask, const char* remainingString)
+{
+	char newRemainingString[256];
+	char thisNumberStr[16];
+	const char* error;
+	int thisNumber=0;
+
+	memset(thisNumberStr, 0, sizeof(thisNumberStr));
+	memset(newRemainingString, 0, sizeof(newRemainingString));
+
+	error = slre_match(0, "^(\\d+)[ ,]*(.*)",
+				remainingString, strlen(remainingString),
+				SLRE_STRING,  sizeof(thisNumberStr), thisNumberStr,
+				SLRE_STRING,  sizeof(newRemainingString), newRemainingString);
+
+	if (NULL != error)
+		printf("Error non-null, [%s]\n\n", error);
+
+	thisNumber = atoi(thisNumberStr);
+	if (thisNumber < 65 && thisNumber > 0)
+		*mask |= 1<<(thisNumber-1);
+
+	if (0 != strlen(newRemainingString))
+		numericParseRecurse(mask, newRemainingString);
+
+	return;
+}
 
 void mrbfsFileEnabledProgramWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int dataSz)
 {
 	MRBFSBusNode* mrbfsNode = (MRBFSBusNode*)(mrbfsFileNode->nodeLocalStorage);
 	NodeLocalStorage* nodeLocalStorage = (NodeLocalStorage*)(mrbfsNode->nodeLocalStorage);
 	int i;
-	char commandStr[17];
+	char commandStr[256];
+	char programs[256];
+	char enableCmd[32];
 	MRBusPacket txPkt;
 	int found = -1;
-	uint16_t newRunTime = 0;
+	uint64_t programMask=0;
 	
 	cleanCommandStr(data, dataSz, commandStr, sizeof(commandStr));
 
-	for (i=0; i<nodeLocalStorage->zonesUsed; i++)
+	memset(enableCmd, 0, sizeof(enableCmd));
+	memset(programs, 0, sizeof(programs));
+
+	// Program input in the form of HHMM-HHMM Zzz....
+	slre_match(0, "^\\s*(ENABLE|EN|DISABLE|DIS|SET)\\s*(.*)",
+				commandStr, strlen(commandStr),
+				SLRE_STRING,  sizeof(enableCmd), enableCmd,
+				SLRE_STRING,  sizeof(programs), programs);
+
+	if (0 == strcmp(enableCmd, "ENABLE") || 0 == strcmp(enableCmd, "EN"))
 	{
-		if (mrbfsFileNode == nodeLocalStorage->file_zones[i])
-		{
-			found = i;
-			break;
-		}		
+		numericParseRecurse(&programMask, programs);
+		
 	}
-
-	// If we didn't find a file pointer match in the zones, bail
-	if (-1 == found)
-		return;
-
-
-	if (0 != (newRunTime = atoi(commandStr)))
+	else if (0 == strcmp(enableCmd, "DISABLE") || 0 == strcmp(enableCmd, "DIS")) 
 	{
-		// Numbers are assumed to be a new manual run request in minutes
-		// Do nothing, it's already handled in the assignment	
+		numericParseRecurse(&programMask, programs);
+	
 	}
-	else if (0 == strcmp(commandStr, "Off"))
+	else if (0 == strcmp(enableCmd, "SET"))
 	{
-		newRunTime = 0;
+		numericParseRecurse(&programMask, programs);
+	
 	}
 	else
+	{
+		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_ERROR, "Node [%s] did not understand command [%s]", mrbfsNode->nodeName, commandStr);
 		return;
+	}
 
-	newRunTime = MIN(newRunTime, 1091);
 
 	// Set up the packet - initialize and fill in a few key values
 	memset(&txPkt, 0, sizeof(MRBusPacket));
@@ -457,8 +489,8 @@ void mrbfsFileEnabledProgramWrite(MRBFSFileNode* mrbfsFileNode, const char* data
 	txPkt.pkt[MRBUS_PKT_LEN] = 8;
 	txPkt.pkt[MRBUS_PKT_TYPE] = 'C';
 	txPkt.pkt[MRBUS_PKT_DATA] = 'M';
-	txPkt.pkt[MRBUS_PKT_DATA+1] = 0xFF & (newRunTime / 256);
-	txPkt.pkt[MRBUS_PKT_DATA+2] = 0xFF & newRunTime;
+	txPkt.pkt[MRBUS_PKT_DATA+1] = 0;
+	txPkt.pkt[MRBUS_PKT_DATA+2] = 0;
 	
 	if (mrbfsNodeQueueTransmitPacket(mrbfsNode, &txPkt) < 0)
 		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_ERROR, "Node [%s] failed to send packet", mrbfsNode->nodeName);

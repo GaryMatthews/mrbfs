@@ -1,0 +1,58 @@
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "slre.h"
+
+void numericParseRecurse(uint64_t* mask, const char* remainingString)
+{
+	char newRemainingString[256];
+	char thisNumberStr[16];
+	const char* error;
+	int thisNumber=0;
+	memset(newRemainingString, 0, sizeof(newRemainingString));
+
+	error = slre_match(0, "^(\\d+)[ ,]*(.*)",
+				remainingString, strlen(remainingString),
+				SLRE_STRING,  sizeof(thisNumberStr), thisNumberStr,
+				SLRE_STRING,  sizeof(newRemainingString), newRemainingString);
+
+	if (NULL != error)
+		printf("Error non-null, [%s]\n\n", error);
+
+	thisNumber = atoi(thisNumberStr);
+	if (thisNumber < 65 && thisNumber > 0)
+		*mask |= 1<<(thisNumber-1);
+
+	if (0 != strlen(newRemainingString))
+		numericParseRecurse(mask, newRemainingString);
+
+	return;
+}
+
+int main(void)
+{
+	const char* str = "asrs";
+	const char* error;
+	char programs[256];
+	char enableCmd[32];
+	uint64_t programMask=0;
+
+
+	memset(enableCmd, 0, sizeof(enableCmd));
+	memset(programs, 0, sizeof(programs));
+
+	// Program input in the form of HHMM-HHMM Zzz....
+	error = slre_match(0, "^\\s*(ENABLE|EN|DISABLE|DIS|SET)\\s*(.*)",
+				str, strlen(str),
+				SLRE_STRING,  sizeof(enableCmd), enableCmd,
+				SLRE_STRING,  sizeof(programs), programs);
+
+	
+	numericParseRecurse(&programMask, programs);
+	
+	printf("cmd = [%s], mask = %lu\n\n", enableCmd, programMask);
+	return 0;
+
+}
