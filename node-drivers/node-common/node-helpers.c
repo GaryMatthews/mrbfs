@@ -11,6 +11,7 @@
 #include <termios.h>
 #include <stdio.h>
 #include <pthread.h>
+#include <stdint.h>
 #include <unistd.h>
 #include <time.h>
 #include "mrbfs-module.h"
@@ -168,6 +169,52 @@ double mrbfsGetTempFrom16K(const UINT8* pktByte, MRBTemperatureUnits units)
 	return(temperatureK);
 }
 
+MRBFSFileNode* mrbfsNodeCreateFile_RO_STR(MRBFSBusNode* mrbfsNode, const char* fileNameStr, char** fileValueStr, uint32_t fileValueStrSz)
+{
+	MRBFSFileNode* newFileNode = (*mrbfsNode->mrbfsFilesystemAddFile)(fileNameStr, FNODE_RO_VALUE_STR, mrbfsNode->path);
+	newFileNode->nodeLocalStorage = (void*)mrbfsNode;
+	*fileValueStr = calloc(1, fileValueStrSz);
+	newFileNode->value.valueStr = *fileValueStr;		
+	return(newFileNode);
+}
+
+MRBFSFileNode* mrbfsNodeCreateFile_RW_STR(MRBFSBusNode* mrbfsNode, const char* fileNameStr, char** fileValueStr, uint32_t fileValueStrSz, mrbfsFileNodeWriteCallback mrbfsFileNodeWrite)
+{
+	MRBFSFileNode* newFileNode = (*mrbfsNode->mrbfsFilesystemAddFile)(fileNameStr, FNODE_RW_VALUE_STR, mrbfsNode->path);
+	newFileNode->nodeLocalStorage = (void*)mrbfsNode;
+	newFileNode->mrbfsFileNodeWrite = mrbfsFileNodeWrite;
+	*fileValueStr = calloc(1, fileValueStrSz);
+	newFileNode->value.valueStr = *fileValueStr;		
+	return(newFileNode);
+}
+
+MRBFSFileNode* mrbfsNodeCreateFile_RW_READBACK(MRBFSBusNode* mrbfsNode, const char* fileNameStr, mrbfsFileNodeReadCallback mrbfsFileNodeRead, mrbfsFileNodeWriteCallback mrbfsFileNodeWrite)
+{
+	MRBFSFileNode* newFileNode = (*mrbfsNode->mrbfsFilesystemAddFile)(fileNameStr, FNODE_RW_VALUE_READBACK, mrbfsNode->path);
+	newFileNode->nodeLocalStorage = (void*)mrbfsNode;
+	newFileNode->mrbfsFileNodeRead = mrbfsFileNodeRead;
+	newFileNode->mrbfsFileNodeWrite = mrbfsFileNodeWrite;
+	return(newFileNode);
+}
+
+
+MRBFSFileNode* mrbfsNodeCreateFile_RO_INT(MRBFSBusNode* mrbfsNode, const char* fileNameStr)
+{
+	MRBFSFileNode* newFileNode = (*mrbfsNode->mrbfsFilesystemAddFile)(fileNameStr, FNODE_RO_VALUE_INT, mrbfsNode->path);
+	newFileNode->nodeLocalStorage = (void*)mrbfsNode;
+	newFileNode->value.valueInt = 0;
+	return(newFileNode);	
+}
+
+MRBFSFileNode* mrbfsNodeCreateFile_RW_INT(MRBFSBusNode* mrbfsNode, const char* fileNameStr, mrbfsFileNodeWriteCallback mrbfsFileNodeWrite)
+{
+	MRBFSFileNode* newFileNode = (*mrbfsNode->mrbfsFilesystemAddFile)(fileNameStr, FNODE_RW_VALUE_STR, mrbfsNode->path);
+	newFileNode->nodeLocalStorage = (void*)mrbfsNode;
+	newFileNode->mrbfsFileNodeWrite = mrbfsFileNodeWrite;
+	newFileNode->value.valueInt = 0;	
+	return(newFileNode);
+}
+
 
 const char* mrbfsNodeOptionGet(MRBFSBusNode* mrbfsNode, const char* nodeOptionKey, const char* defaultValue)
 {
@@ -185,7 +232,6 @@ const char* mrbfsNodeOptionGet(MRBFSBusNode* mrbfsNode, const char* nodeOptionKe
 
 int mrbfsNodeQueueTransmitPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* txPkt)
 {
-	int success = 0;
 	if (NULL == mrbfsNode->mrbfsNodeTxPacket)
 		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_INFO, "Node [%s] can't transmit - no mrbfsNodeTxPacket function defined", mrbfsNode->nodeName);
 	else
@@ -204,5 +250,69 @@ int mrbfsNodeQueueTransmitPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* txPkt)
 	return(-1);
 }
 
+int mrbfsNodeTxAndGetResponse(MRBFSBusNode* mrbfsNode, MRBusPacketQueue* rxq, uint8_t* requestRXFeed, MRBusPacket* txPkt, MRBusPacket* rxPkt, uint32_t timeoutMilliseconds, uint8_t retries, mrbfsRxPktFilterCallback mrbfsRxPktFilter, void* otherFilterData)
+{
+	uint32_t timeout;
+	uint8_t retry = 0;
+	uint8_t foundResponse = 0;
 
+	if (0 == retries)
+		retries = 1;
+
+	for(retry = 0; !foundResponse && (retry < retries); retry++)
+	{
+		// Spin on requestRXFeed - we need to make sure we're the only one listening
+		// This should probably be a mutex
+		while(*requestRXFeed);
+
+		// Once nobody else is using the rx feed, grab it and initialize the queue
+		*requestRXFeed = 1;
+		mrbusPacketQueueInitialize(rxq);		
+
+		// Once we're listening to the bus for responses, send our query
+		if (mrbfsNodeQueueTransmitPacket(mrbfsNode, txPkt) < 0)
+			(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_ERROR, "Node [%s] failed to send packet", mrbfsNode->nodeName);
+
+		// Now, wait.  Spin in a loop with a sleep so we don't hog the processor
+		// Currently this yields a 1s timeout.  Break as soon as we have our answer packet.
+		for(timeout=0; !foundResponse && (timeout < timeoutMilliseconds); timeout++)
+		{
+			while(!foundResponse && mrbusPacketQueueDepth(rxq))
+			{
+				memset(rxPkt, 0, sizeof(MRBusPacket));
+				mrbusPacketQueuePop(rxq, rxPkt);
+				(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Readback [%s] saw pkt [%02X->%02X] ['%c']", mrbfsNode->nodeName, rxPkt->pkt[MRBUS_PKT_SRC], rxPkt->pkt[MRBUS_PKT_DEST], rxPkt->pkt[MRBUS_PKT_TYPE]);
+				if (0 != (*mrbfsRxPktFilter)(rxPkt, mrbfsNode->address, otherFilterData))
+					foundResponse = 1;
+			}
+
+			if (!foundResponse)
+				usleep(1000);
+		}
+
+		// We're done, somebody else can have the RX feed
+		*requestRXFeed = 0;
+
+		// Give it a bit between retries
+		if (!foundResponse)
+			usleep(50000);
+	}
+
+	return(foundResponse);
+}
+
+int trimNewlines(char* str, int trimval)
+{
+	int newlines=0;
+	while(0 != *str)
+	{
+		if ('\n' == *str)
+			newlines++;
+		if (newlines >= trimval)
+			*++str = 0;
+		else
+			++str;
+	}
+	return(newlines);
+}
 

@@ -1,6 +1,8 @@
 #ifndef NODE_HELPERS_H
 #define NODE_HELPERS_H
 
+#include "mrbfs-types.h"
+
 typedef enum
 {
 	MRB_TEMPERATURE_UNITS_C = 0,
@@ -23,6 +25,8 @@ typedef enum
 	
 } MRBPressureUnits;
 
+typedef int (*mrbfsRxPktFilterCallback)(MRBusPacket* rxPkt, uint8_t srcAddress, void* otherFilterData);
+
 const char* mrbfsNodeOptionGet(MRBFSBusNode* mrbfsNode, const char* nodeOptionKey, const char* defaultValue);
 int mrbfsNodeQueueTransmitPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* txPkt);
 MRBTemperatureUnits mrbfsNodeGetTemperatureUnits(MRBFSBusNode* mrbfsNode, const char* optionName);
@@ -32,4 +36,15 @@ const char* mrbfsGetTemperatureDisplayUnits(MRBTemperatureUnits units);
 double mrbfsGetPressureFromHPa(const UINT8* pktByte, MRBPressureUnits units);
 double mrbfsGetPressureFromHPaDouble(double pressure, MRBPressureUnits units);
 const char* mrbfsGetPressureDisplayUnits(MRBPressureUnits units);
+
+MRBFSFileNode* mrbfsNodeCreateFile_RO_STR(MRBFSBusNode* mrbfsNode, const char* fileNameStr, char** fileValueStr, uint32_t fileValueStrSz);
+MRBFSFileNode* mrbfsNodeCreateFile_RW_STR(MRBFSBusNode* mrbfsNode, const char* fileNameStr, char** fileValueStr, uint32_t fileValueStrSz, mrbfsFileNodeWriteCallback mrbfsFileNodeWrite);
+MRBFSFileNode* mrbfsNodeCreateFile_RO_INT(MRBFSBusNode* mrbfsNode, const char* fileNameStr);
+MRBFSFileNode* mrbfsNodeCreateFile_RW_INT(MRBFSBusNode* mrbfsNode, const char* fileNameStr, mrbfsFileNodeWriteCallback mrbfsFileNodeWrite);
+MRBFSFileNode* mrbfsNodeCreateFile_RW_READBACK(MRBFSBusNode* mrbfsNode, const char* fileNameStr, mrbfsFileNodeReadCallback mrbfsFileNodeRead, mrbfsFileNodeWriteCallback mrbfsFileNodeWrite);
+
+int mrbfsNodeTxAndGetResponse(MRBFSBusNode* mrbfsNode, MRBusPacketQueue* rxq, uint8_t* requestRxFeed, MRBusPacket* txPkt, MRBusPacket* rxPkt, uint32_t timeoutMilliseconds, uint8_t retries, mrbfsRxPktFilterCallback mrbfsRxPktFilter, void* otherFilterData);
+
+int trimNewlines(char* str, int trimval);
+
 #endif
