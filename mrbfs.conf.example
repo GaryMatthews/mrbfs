@@ -1,4 +1,7 @@
 log-file = "/home/ndholmes/data/mrbus/mrbfs/mrbfs.log"
+# Log level is 0 for just errors, 1 for warnings, 2 for info, and 9 for max debug
+log-level = 9
+
 module-directory = "/home/ndholmes/data/mrbus/mrbfs/modules"
 
 #interface ci2
@@ -17,7 +20,7 @@ module-directory = "/home/ndholmes/data/mrbus/mrbfs/modules"
 #   interface-address = "0xFE"
 ##   baud option is 9600, 19200, 38400, 57600, or 115200
 ##   Note that 115200 can be unreliable and flakey due to baud mismatches between the PC and the xbee
-#   option { baud = "57600" }
+#   option baud { value = "57600" }
 #}
 
 
