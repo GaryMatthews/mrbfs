@@ -308,8 +308,30 @@ void mrbfsFileProgramWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int d
 	MRBFSBusNode* mrbfsNode = (MRBFSBusNode*)(mrbfsFileNode->nodeLocalStorage);
 	NodeLocalStorage* nodeLocalStorage = (NodeLocalStorage*)(mrbfsNode->nodeLocalStorage);
 	int i,j;
-	char commandStr[17];
+	int found = -1;
+	char commandStr[65];
 	MRBusPacket txPkt;
+
+	cleanCommandStr(data, dataSz, commandStr, sizeof(commandStr));
+
+	for (i=0; i<nodeLocalStorage->programsUsed; i++)
+	{
+		if (mrbfsFileNode == nodeLocalStorage->file_programs[i])
+		{
+			found = i;
+			break;
+		}		
+	}
+
+	// If we didn't find a file pointer match in the programs, bail, don't know where this came from
+	if (-1 == found)
+		return;
+
+	// Program input in the form of HHMM-HHMM Zzz....
+	
+
+
+
 	// Set up the packet - initialize and fill in a few key values
 	memset(&txPkt, 0, sizeof(MRBusPacket));
 	txPkt.bus = mrbfsNode->bus;

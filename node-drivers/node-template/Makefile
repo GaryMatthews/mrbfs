@@ -4,7 +4,7 @@
 ### Build options
 CC    =       gcc
 INCLUDES        =       -I. -I../../ -I../../libconfuse/src/ -I../node-common/
-CFLAGS      =  -fPIC -shared -O2 $(INCLUDES) -Wall
+CFLAGS      =  -fPIC -shared -O2 $(INCLUDES) -D_FILE_OFFSET_BITS=64 -D_REENTRANT -D_GNU_SOURCE -pthread
 
 LDFLAGS         = -lm
 BIN_TARGET  =  ../../modules/node-template.so
@@ -14,7 +14,7 @@ MODULE_OBJ      =       $(MODULE_SRC:%.c=%.o)
 
 ### rts targets
 all:    $(MODULE_OBJ)
-	ld -shared -soname node-template -lm -o $(BIN_TARGET) -lc $(MODULE_OBJ)
+	ld -shared -soname node-template -lpthread -lm -o $(BIN_TARGET) -lc $(MODULE_OBJ)
 
 $(BIN_TARGET): $(MODULE_OBJ)
 	$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $(BIN_TARGET)

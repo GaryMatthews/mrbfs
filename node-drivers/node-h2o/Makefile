@@ -14,7 +14,7 @@ MODULE_OBJ      =       $(MODULE_SRC:%.c=%.o)
 
 ### rts targets
 all:    $(MODULE_OBJ)
-	ld -shared -soname node-h2o -lm -o $(BIN_TARGET) -lc $(MODULE_OBJ)
+	ld -shared -soname node-h2o -lpthread -lm -o $(BIN_TARGET) -lc $(MODULE_OBJ)
 
 $(BIN_TARGET): $(MODULE_OBJ)
 	$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $(BIN_TARGET)

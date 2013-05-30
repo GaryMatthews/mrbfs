@@ -24,6 +24,7 @@ build_drivers:
 	make -C interface-drivers/interface-xbee
 	make -C node-drivers/node-generic
 	make -C node-drivers/node-bd42
+	make -C node-drivers/node-h2o
 	make -C node-drivers/node-rts	
 	make -C node-drivers/node-th
 	make -C node-drivers/node-ap
@@ -39,6 +40,7 @@ clean:
 	make -C interface-drivers/interface-xbee clean
 	make -C node-drivers/node-generic clean
 	make -C node-drivers/node-bd42 clean
+	make -C node-drivers/node-h2o clean
 	make -C node-drivers/node-rts clean
 	make -C node-drivers/node-th clean
 	make -C node-drivers/node-ap clean

@@ -39,6 +39,7 @@ LICENSE:
 #include <time.h>
 #include "mrbfs-module.h"
 #include "mrbfs-pktqueue.h"
+#include "node-helpers.h"
 
 #define MRBFS_NODE_DRIVER_NAME   "node-clockdriver"
 
@@ -241,35 +242,6 @@ size_t mrbfsFileNodeRead(MRBFSFileNode* mrbfsFileNode, char *buf, size_t size, o
 
 	return(size);
 }
-
-/*******************************************************
-Internal Function:  nodeOptionGet()
-
-Purpose:  
- Returns a const pointer to the string value corresponding
- to requested key value, or equal to the defaultValue
- being passed in if not found.  These come out of 
- "option" sections in the mrbfs.conf file
-
- If your node doesn't implement any optional parameters,
- or reads them in some other way, this can be omitted.
-
-*******************************************************/
-
-const char* mrbfsNodeOptionGet(MRBFSBusNode* mrbfsNode, const char* nodeOptionKey, const char* defaultValue)
-{
-	int i;
-	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] - [%d] node options, looking for [%s]", mrbfsNode->nodeName, mrbfsNode->nodeOptions, nodeOptionKey);
-
-	for(i=0; i<mrbfsNode->nodeOptions; i++)
-	{
-		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] - node option [%d], comparing key [%s] to [%s]", mrbfsNode->nodeName, mrbfsNode->nodeOptions, nodeOptionKey, mrbfsNode->nodeOptionList[i].key);
-		if (0 == strcmp(nodeOptionKey, mrbfsNode->nodeOptionList[i].key))
-			return(mrbfsNode->nodeOptionList[i].value);
-	}
-	return(defaultValue);
-}
-
 
 /*******************************************************
 Public Function:  mrbfsNodeInit()
@@ -572,28 +544,4 @@ int nodeQueueTransmitPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* txPkt)
 	}
 	return(-1);
 }
-
-/*******************************************************
-Internal Function:  trimNewlines()
-
-Purpose: Used to trim the logging buffer for file 'rxPackets'
- to (trimval) number of lines.
-
-*******************************************************/
-
-int trimNewlines(char* str, int trimval)
-{
-	int newlines=0;
-	while(0 != *str)
-	{
-		if ('\n' == *str)
-			newlines++;
-		if (newlines >= trimval)
-			*++str = 0;
-		else
-			++str;
-	}
-	return(newlines);
-}
-
 

@@ -14,6 +14,7 @@
 #include <unistd.h>
 #include "mrbfs-module.h"
 #include "mrbfs-pktqueue.h"
+#include "node-helpers.h"
 
 #define MRBFS_NODE_DRIVER_NAME   "node-bd42"
 #define MRB_BD42_MAX_CHANNELS  12
@@ -198,22 +199,6 @@ size_t mrbfsFileNodeRead(MRBFSFileNode* mrbfsFileNode, char *buf, size_t size, o
 	return(size);
 }
 
-
-
-const char* mrbfsNodeOptionGet(MRBFSBusNode* mrbfsNode, const char* nodeOptionKey, const char* defaultValue)
-{
-	int i;
-	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] - [%d] node options, looking for [%s]", mrbfsNode->nodeName, mrbfsNode->nodeOptions, nodeOptionKey);
-
-	for(i=0; i<mrbfsNode->nodeOptions; i++)
-	{
-		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] - node option [%d], comparing key [%s] to [%s]", mrbfsNode->nodeName, mrbfsNode->nodeOptions, nodeOptionKey, mrbfsNode->nodeOptionList[i].key);
-		if (0 == strcmp(nodeOptionKey, mrbfsNode->nodeOptionList[i].key))
-			return(mrbfsNode->nodeOptionList[i].value);
-	}
-	return(defaultValue);
-}
-
 int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 {
 	NodeLocalStorage* nodeLocalStorage = calloc(1, sizeof(NodeLocalStorage));
@@ -292,21 +277,6 @@ int mrbfsNodeDestroy(MRBFSBusNode* mrbfsNode)
 	mrbfsNode->nodeLocalStorage = NULL;
 	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_INFO, "Node [%s] shutdown complete", mrbfsNode->nodeName);
 	return (0);
-}
-
-int trimNewlines(char* str, int trimval)
-{
-	int newlines=0;
-	while(0 != *str)
-	{
-		if ('\n' == *str)
-			newlines++;
-		if (newlines >= trimval)
-			*++str = 0;
-		else
-			++str;
-	}
-	return(newlines);
 }
 
 // This function may be called simultaneously by multiple packet receivers.  Make sure anything affecting
