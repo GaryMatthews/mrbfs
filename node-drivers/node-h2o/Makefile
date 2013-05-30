@@ -4,7 +4,7 @@
 ### Build options
 CC    =       gcc
 INCLUDES        =       -I. -I../../ -I../../libconfuse/src/ -I../node-common/
-CFLAGS      =  -fPIC -shared -O2 $(INCLUDES) -Wall
+CFLAGS      =  -fPIC -shared -O2 $(INCLUDES) -D_FILE_OFFSET_BITS=64 -D_REENTRANT -D_GNU_SOURCE -pthread
 
 LDFLAGS         = -lm
 BIN_TARGET  =  ../../modules/node-h2o.so
