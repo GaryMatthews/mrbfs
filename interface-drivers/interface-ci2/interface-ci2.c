@@ -176,7 +176,7 @@ void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
       
       while ((nbytes = read(fd, incomingByte, 1)) > 0)
       {
-        (*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface [%s] got byte [0x%02X]", mrbfsInterfaceDriver->interfaceName, incomingByte[0]);
+//        (*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Interface [%s] got byte [0x%02X]", mrbfsInterfaceDriver->interfaceName, incomingByte[0]);
 
          switch(incomingByte[0])
          {
