@@ -207,7 +207,7 @@ MRBFSFileNode* mrbfsNodeCreateFile_RO_INT(MRBFSBusNode* mrbfsNode, const char* f
 
 MRBFSFileNode* mrbfsNodeCreateFile_RW_INT(MRBFSBusNode* mrbfsNode, const char* fileNameStr, mrbfsFileNodeWriteCallback mrbfsFileNodeWrite)
 {
-	MRBFSFileNode* newFileNode = (*mrbfsNode->mrbfsFilesystemAddFile)(fileNameStr, FNODE_RW_VALUE_STR, mrbfsNode->path);
+	MRBFSFileNode* newFileNode = (*mrbfsNode->mrbfsFilesystemAddFile)(fileNameStr, FNODE_RW_VALUE_INT, mrbfsNode->path);
 	newFileNode->nodeLocalStorage = (void*)mrbfsNode;
 	newFileNode->mrbfsFileNodeWrite = mrbfsFileNodeWrite;
 	newFileNode->value.valueInt = 0;	
