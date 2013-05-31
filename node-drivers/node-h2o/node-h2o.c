@@ -125,7 +125,8 @@ typedef struct
 	
 	char rxPacketStr[RX_PKT_BUFFER_SZ];
 
-	uint8_t requestRXFeed;
+	pthread_mutex_t rxFeedLock;
+	volatile uint8_t requestRXFeed;
 	MRBusPacketQueue rxq;
 	int timeout;
 	time_t lastUpdated;	
@@ -668,7 +669,7 @@ size_t mrbfsFileProgramRead(MRBFSFileNode* mrbfsFileNode, char *buf, size_t size
 		txPkt.pkt[MRBUS_PKT_DATA] = 'R';  // Subtype of 'R' - program read
 		txPkt.pkt[MRBUS_PKT_DATA+1] = (uint8_t)program;  // Subtype of 'R' - program read
 
-		foundResponse = mrbfsNodeTxAndGetResponse(mrbfsNode, &nodeLocalStorage->rxq, &nodeLocalStorage->requestRXFeed, &txPkt, &rxPkt, 1000, 3, &filterProgramReadPkt, (void*)&program);
+		foundResponse = mrbfsNodeTxAndGetResponse(mrbfsNode, &nodeLocalStorage->rxq, &nodeLocalStorage->rxFeedLock, &nodeLocalStorage->requestRXFeed, &txPkt, &rxPkt, 500, 3, &filterProgramReadPkt, (void*)&program);
 
 		// If we didn't get an answer, just log a warning (MRBus is not guaranteed communications, after all)
 		// A smarter node could implement retry logic
@@ -812,7 +813,7 @@ size_t mrbfsFileEnabledProgramRead(MRBFSFileNode* mrbfsFileNode, char *buf, size
 		txPkt.pkt[MRBUS_PKT_TYPE] = 'C';  // Packet type of Command
 		txPkt.pkt[MRBUS_PKT_DATA] = 'P';  // Subtype of 'G' - enables read
 
-		foundResponse = mrbfsNodeTxAndGetResponse(mrbfsNode, &nodeLocalStorage->rxq, &nodeLocalStorage->requestRXFeed, &txPkt, &rxPkt, 1000, 3, &filterEnableReadPkt, NULL);
+		foundResponse = mrbfsNodeTxAndGetResponse(mrbfsNode, &nodeLocalStorage->rxq, &nodeLocalStorage->rxFeedLock, &nodeLocalStorage->requestRXFeed, &txPkt, &rxPkt, 1000, 3, &filterEnableReadPkt, NULL);
 
 		if(!foundResponse)
 		{
@@ -912,7 +913,7 @@ size_t mrbfsFileZoneTimeRead(MRBFSFileNode* mrbfsFileNode, char *buf, size_t siz
 	txPkt.pkt[MRBUS_PKT_DATA] = 'Z';  // Subtype of 'Z' - zone time read
 	txPkt.pkt[MRBUS_PKT_DATA+1] = zone;
 
-	foundResponse = mrbfsNodeTxAndGetResponse(mrbfsNode, &nodeLocalStorage->rxq, &nodeLocalStorage->requestRXFeed, &txPkt, &rxPkt, 1000, 3, &filterZoneTimerReadPkt, (void*)&zone);
+	foundResponse = mrbfsNodeTxAndGetResponse(mrbfsNode, &nodeLocalStorage->rxq, &nodeLocalStorage->rxFeedLock, &nodeLocalStorage->requestRXFeed, &txPkt, &rxPkt, 1000, 3, &filterZoneTimerReadPkt, (void*)&zone);
 
 	if(!foundResponse)
 	{
@@ -1016,7 +1017,8 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 	// to us every time this node is called
 	mrbfsNode->nodeLocalStorage = (void*)nodeLocalStorage;
 	nodeLocalStorage->requestRXFeed = 0;
-
+	mrbfsNodeMutexInit(&nodeLocalStorage->rxFeedLock);
+	
 	// Get configuration options from the file
 	nodeLocalStorage->timeout = atoi(mrbfsNodeOptionGet(mrbfsNode, "timeout", "none"));
 	nodeLocalStorage->decimalPositions = atoi(mrbfsNodeOptionGet(mrbfsNode, "decimal_positions", "2"));

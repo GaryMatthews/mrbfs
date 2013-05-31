@@ -249,7 +249,18 @@ int mrbfsNodeQueueTransmitPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* txPkt)
 	return(-1);
 }
 
-int mrbfsNodeTxAndGetResponse(MRBFSBusNode* mrbfsNode, MRBusPacketQueue* rxq, uint8_t* requestRXFeed, MRBusPacket* txPkt, MRBusPacket* rxPkt, uint32_t timeoutMilliseconds, uint8_t retries, mrbfsRxPktFilterCallback mrbfsRxPktFilter, void* otherFilterData)
+void mrbfsNodeMutexInit(pthread_mutex_t* mutex)
+{
+	pthread_mutexattr_t lockAttr;
+	// Initialize the master lock
+	pthread_mutexattr_init(&lockAttr);
+	pthread_mutexattr_settype(&lockAttr, PTHREAD_MUTEX_ADAPTIVE_NP);
+	pthread_mutex_init(mutex, &lockAttr);
+	pthread_mutexattr_destroy(&lockAttr);		
+}
+
+
+int mrbfsNodeTxAndGetResponse(MRBFSBusNode* mrbfsNode, MRBusPacketQueue* rxq, pthread_mutex_t* rxFeedLock, volatile uint8_t* requestRXFeed, MRBusPacket* txPkt, MRBusPacket* rxPkt, uint32_t timeoutMilliseconds, uint8_t retries, mrbfsRxPktFilterCallback mrbfsRxPktFilter, void* otherFilterData)
 {
 	uint32_t timeout;
 	uint8_t retry = 0;
@@ -263,11 +274,13 @@ int mrbfsNodeTxAndGetResponse(MRBFSBusNode* mrbfsNode, MRBusPacketQueue* rxq, ui
 		// Spin on requestRXFeed - we need to make sure we're the only one listening
 		// This should probably be a mutex
 		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] mrbfsNodeTxAndGetResponse - trying to acquire RXQ read lock", mrbfsNode->nodeName);
-		while(*requestRXFeed);
+		pthread_mutex_lock(rxFeedLock);
+		mrbusPacketQueueInitialize(rxq);
+		*requestRXFeed = 1;
 		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] has acquired RXQ read lock", mrbfsNode->nodeName);
 		// Once nobody else is using the rx feed, grab it and initialize the queue
-		*requestRXFeed = 1;
-		mrbusPacketQueueInitialize(rxq);		
+
+
 
 		// Once we're listening to the bus for responses, send our query
 		if (mrbfsNodeQueueTransmitPacket(mrbfsNode, txPkt) < 0)
@@ -292,7 +305,11 @@ int mrbfsNodeTxAndGetResponse(MRBFSBusNode* mrbfsNode, MRBusPacketQueue* rxq, ui
 
 		// We're done, somebody else can have the RX feed
 		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] releasing RXQ read lock", mrbfsNode->nodeName);
+
+
 		*requestRXFeed = 0;
+
+		pthread_mutex_unlock(rxFeedLock);
 
 		// Give it a bit between retries
 		if (!foundResponse)

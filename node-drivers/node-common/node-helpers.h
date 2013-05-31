@@ -43,8 +43,8 @@ MRBFSFileNode* mrbfsNodeCreateFile_RO_INT(MRBFSBusNode* mrbfsNode, const char* f
 MRBFSFileNode* mrbfsNodeCreateFile_RW_INT(MRBFSBusNode* mrbfsNode, const char* fileNameStr, mrbfsFileNodeWriteCallback mrbfsFileNodeWrite);
 MRBFSFileNode* mrbfsNodeCreateFile_RW_READBACK(MRBFSBusNode* mrbfsNode, const char* fileNameStr, mrbfsFileNodeReadCallback mrbfsFileNodeRead, mrbfsFileNodeWriteCallback mrbfsFileNodeWrite);
 
-int mrbfsNodeTxAndGetResponse(MRBFSBusNode* mrbfsNode, MRBusPacketQueue* rxq, uint8_t* requestRxFeed, MRBusPacket* txPkt, MRBusPacket* rxPkt, uint32_t timeoutMilliseconds, uint8_t retries, mrbfsRxPktFilterCallback mrbfsRxPktFilter, void* otherFilterData);
-
+int mrbfsNodeTxAndGetResponse(MRBFSBusNode* mrbfsNode, MRBusPacketQueue* rxq, pthread_mutex_t* rxFeedLock, volatile uint8_t* requestRxFeed, MRBusPacket* txPkt, MRBusPacket* rxPkt, uint32_t timeoutMilliseconds, uint8_t retries, mrbfsRxPktFilterCallback mrbfsRxPktFilter, void* otherFilterData);
+void mrbfsNodeMutexInit(pthread_mutex_t* mutex);
 int trimNewlines(char* str, int trimval);
 
 #endif
