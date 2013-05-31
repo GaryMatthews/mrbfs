@@ -353,7 +353,7 @@ void numberListToMask(MRBFSBusNode* mrbfsNode, uint64_t* mask, const char* remai
 
 	memset(oldRemainingString, 0, sizeof(oldRemainingString));
 
-	strncpy(oldRemainingString, remainingString, sizeof(oldRemainingString-1));
+	strncpy(oldRemainingString, remainingString, sizeof(oldRemainingString)-1);
 
 	while (0 != strlen(oldRemainingString))
 	{
@@ -378,7 +378,7 @@ void numberListToMask(MRBFSBusNode* mrbfsNode, uint64_t* mask, const char* remai
 
 		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] numberListToMask, after atoi=[%d]", mrbfsNode->nodeName, thisNumber);
 
-		strncpy(oldRemainingString, newRemainingString, sizeof(oldRemainingString-1));
+		strncpy(oldRemainingString, newRemainingString, sizeof(oldRemainingString)-1);
 	}
 
 	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] numberListToMask returning", mrbfsNode->nodeName);
