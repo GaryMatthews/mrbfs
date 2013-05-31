@@ -420,7 +420,7 @@ int mrbfsRead(const char *path, char *buf, size_t size, off_t offset, struct fus
 			mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsRead(%s) - readback function called offset[%d], size[%d]", fileNode->fileName, offset, size);
 			size = (*fileNode->mrbfsFileNodeRead)(fileNode, buf, size, offset);
 			if (size >= 0)
-				mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsRead(%s) - readback, value [%s] size [%d]", fileNode->fileName, buf, size);
+				mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsRead(%s) - readback, value [%.*s] size [%d]", fileNode->fileName, size, buf, size);
 			else
 				mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsRead(%s) - readback error, size=%d", fileNode->fileName, size);
 			break;
