@@ -348,7 +348,7 @@ Purpose:  The mrbfsNodeTick() function gets called
 int mrbfsNodeTick(MRBFSBusNode* mrbfsNode, time_t currentTime)
 {
 	NodeLocalStorage* nodeLocalStorage = mrbfsNode->nodeLocalStorage;
-	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] received tick", mrbfsNode->nodeName);
+	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_ANNOYING, "Node [%s] received tick", mrbfsNode->nodeName);
 
 	// 0 means don't transmit, so skip the rest
 	if (0 == nodeLocalStorage->file_txInterval->value.valueInt)

@@ -187,7 +187,7 @@ void nodeResetFilesNoData(MRBFSBusNode* mrbfsNode)
 int mrbfsNodeTick(MRBFSBusNode* mrbfsNode, time_t currentTime)
 {
 	NodeLocalStorage* nodeLocalStorage = mrbfsNode->nodeLocalStorage;
-	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_INFO, "Node [%s] received tick", mrbfsNode->nodeName);
+	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_ANNOYING, "Node [%s] received tick", mrbfsNode->nodeName);
 
 	if (0 == nodeLocalStorage->timeout)
 		return(0);

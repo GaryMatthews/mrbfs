@@ -124,6 +124,7 @@ typedef struct
 	uint32_t zoneState;
 	
 	char rxPacketStr[RX_PKT_BUFFER_SZ];
+
 	uint8_t requestRXFeed;
 	MRBusPacketQueue rxq;
 	int timeout;
@@ -1133,7 +1134,7 @@ Purpose:  The mrbfsNodeTick() function gets called
 int mrbfsNodeTick(MRBFSBusNode* mrbfsNode, time_t currentTime)
 {
 	NodeLocalStorage* nodeLocalStorage = mrbfsNode->nodeLocalStorage;
-	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] received tick", mrbfsNode->nodeName);
+	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_ANNOYING, "Node [%s] received tick", mrbfsNode->nodeName);
 
 	// If the node receive timeout is 0, that means it's not set and data should live forever
 	if (0 == nodeLocalStorage->timeout)

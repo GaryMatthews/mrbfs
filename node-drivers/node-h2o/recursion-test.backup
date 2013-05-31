@@ -5,35 +5,51 @@
 
 #include "slre.h"
 
-void numericParseRecurse(uint64_t* mask, const char* remainingString)
+void numberListToMask(uint64_t* mask, const char* remainingString)
 {
+	char oldRemainingString[256];
 	char newRemainingString[256];
 	char thisNumberStr[16];
 	const char* error;
 	int thisNumber=0;
-	memset(newRemainingString, 0, sizeof(newRemainingString));
 
-	error = slre_match(0, "^(\\d+)[ ,]*(.*)",
-				remainingString, strlen(remainingString),
-				SLRE_STRING,  sizeof(thisNumberStr), thisNumberStr,
-				SLRE_STRING,  sizeof(newRemainingString), newRemainingString);
+	memset(oldRemainingString, 0, sizeof(oldRemainingString));
 
-	if (NULL != error)
-		printf("Error non-null, [%s]\n\n", error);
+	strncpy(oldRemainingString, remainingString, sizeof(oldRemainingString)-1);
 
-	thisNumber = atoi(thisNumberStr);
-	if (thisNumber < 65 && thisNumber > 0)
-		*mask |= 1<<(thisNumber-1);
+	while (0 != strlen(oldRemainingString))
+	{
+		memset(thisNumberStr, 0, sizeof(thisNumberStr));
+		memset(newRemainingString, 0, sizeof(newRemainingString));
 
-	if (0 != strlen(newRemainingString))
-		numericParseRecurse(mask, newRemainingString);
+		printf("Node numberListToMask, input=[%s]\n", oldRemainingString);
 
+		error = slre_match(0, "^(\\d+)[ ,]*(.*)",
+					oldRemainingString, strlen(oldRemainingString),
+					SLRE_STRING,  sizeof(thisNumberStr), thisNumberStr,
+					SLRE_STRING,  sizeof(newRemainingString), newRemainingString);
+
+	//	if (NULL != error)
+	//		printf("Error non-null, [%s]\n\n", error);
+
+		printf("Node  numberListToMask, thisNum=[%s], remaining=[%s]\n", thisNumberStr, newRemainingString);
+
+		thisNumber = atoi(thisNumberStr);
+		if (thisNumber < 65 && thisNumber > 0)
+			*mask |= ((uint64_t)1)<<(thisNumber-1);
+
+		memset(oldRemainingString, 0, sizeof(oldRemainingString)-1);
+		strncpy(oldRemainingString, newRemainingString, sizeof(oldRemainingString)-1);
+	}
+
+	printf("Node numberListToMask returning\n");
 	return;
 }
 
+
 int main(void)
 {
-	const char* str = "asrs";
+	const char* str = "ENABLE 1,6,16,8,9,12,14,15,16";
 	const char* error;
 	char programs[256];
 	char enableCmd[32];
@@ -50,7 +66,7 @@ int main(void)
 				SLRE_STRING,  sizeof(programs), programs);
 
 	
-	numericParseRecurse(&programMask, programs);
+	numberListToMask(&programMask, programs);
 	
 	printf("cmd = [%s], mask = %lu\n\n", enableCmd, programMask);
 	return 0;

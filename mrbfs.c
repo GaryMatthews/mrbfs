@@ -141,11 +141,11 @@ void mrbfsTicker()
 				MRBFSBusNode* node = bus->node[nodeNumber];
 				if (NULL == node || NULL == node->mrbfsNodeTick)
 					continue;
-				mrbfsLogMessage(MRBFS_LOG_DEBUG, "Trying to call tick function, bus=[%d], node=[%02X]", busNumber, nodeNumber);
+				mrbfsLogMessage(MRBFS_LOG_ANNOYING, "Trying to call tick function, bus=[%d], node=[%02X]", busNumber, nodeNumber);
 				(*node->mrbfsNodeTick)((MRBFSBusNode*)node, currentTime);
 			}
 		}
-		mrbfsLogMessage(MRBFS_LOG_DEBUG, "Finished tick at %s [%d]", buffer, currentTime);
+		mrbfsLogMessage(MRBFS_LOG_ANNOYING, "Finished tick at %s [%d]", buffer, currentTime);
 		
 	}
 	
