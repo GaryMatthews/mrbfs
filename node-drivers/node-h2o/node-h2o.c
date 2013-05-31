@@ -915,7 +915,7 @@ size_t mrbfsFileZoneTimeRead(MRBFSFileNode* mrbfsFileNode, char *buf, size_t siz
 
 	if(!foundResponse)
 	{
-		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_WARNING, "Node [%s], no response to program enable read request", mrbfsNode->nodeName);
+		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_WARNING, "Node [%s], no response to zone timer read request", mrbfsNode->nodeName);
 		sprintf(responseBuffer, "No data\n");			
 	} 
 	else
