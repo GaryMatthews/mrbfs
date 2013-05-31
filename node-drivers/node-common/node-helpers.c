@@ -262,8 +262,9 @@ int mrbfsNodeTxAndGetResponse(MRBFSBusNode* mrbfsNode, MRBusPacketQueue* rxq, ui
 	{
 		// Spin on requestRXFeed - we need to make sure we're the only one listening
 		// This should probably be a mutex
+		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] mrbfsNodeTxAndGetResponse - trying to acquire RXQ read lock", mrbfsNode->nodeName);
 		while(*requestRXFeed);
-
+		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] has acquired RXQ read lock", mrbfsNode->nodeName);
 		// Once nobody else is using the rx feed, grab it and initialize the queue
 		*requestRXFeed = 1;
 		mrbusPacketQueueInitialize(rxq);		
@@ -290,12 +291,15 @@ int mrbfsNodeTxAndGetResponse(MRBFSBusNode* mrbfsNode, MRBusPacketQueue* rxq, ui
 		}
 
 		// We're done, somebody else can have the RX feed
+		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] releasing RXQ read lock", mrbfsNode->nodeName);
 		*requestRXFeed = 0;
 
 		// Give it a bit between retries
 		if (!foundResponse)
 			usleep(50000);
 	}
+
+	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] mrbfsNodeTxAndGetResponse returning - retval=[%d]", mrbfsNode->nodeName, foundResponse);
 
 	return(foundResponse);
 }
