@@ -1055,7 +1055,7 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 		sprintf(zoneKeyname, "zone%02d_name", i+1);
 		zoneFilename = mrbfsNodeOptionGet(mrbfsNode, zoneKeyname, zoneDefaultFilename);
 
-		snprintf(zoneTimeFilename, sizeof(zoneTimeFilename)-1, "%s_ttl_runtime", zoneFilename);
+		snprintf(zoneTimeFilename, sizeof(zoneTimeFilename)-1, "%s_totalRuntime", zoneFilename);
 
 		nodeLocalStorage->file_zones[i] = mrbfsNodeCreateFile_RW_STR(mrbfsNode, zoneFilename, &nodeLocalStorage->zoneValueStr[i], OUTPUT_VALUE_BUFFER_SZ, &mrbfsFileZoneWrite);
 		nodeLocalStorage->file_zoneTimes[i] = mrbfsNodeCreateFile_RW_READBACK(mrbfsNode, zoneTimeFilename, &mrbfsFileZoneTimeRead, &mrbfsFileZoneTimeWrite);
@@ -1092,7 +1092,7 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 
 	nodeLocalStorage->file_activeProgramList = mrbfsNodeCreateFile_RO_STR(mrbfsNode, "activeProgramList", &nodeLocalStorage->activeProgramListValueStr, MRB_H2O_PROGRAM_LIST_SZ);
 	nodeLocalStorage->file_activeProgramBitmask = mrbfsNodeCreateFile_RO_STR(mrbfsNode, "activeProgramBitmask", &nodeLocalStorage->activeProgramBitmaskValueStr, MRB_H2O_PROGRAM_LIST_SZ);
-	nodeLocalStorage->file_busVoltage = mrbfsNodeCreateFile_RO_STR(mrbfsNode, "mrbus_voltage", &nodeLocalStorage->busVoltageValue, OUTPUT_VALUE_BUFFER_SZ);
+	nodeLocalStorage->file_busVoltage = mrbfsNodeCreateFile_RO_STR(mrbfsNode, "mrbusVoltage", &nodeLocalStorage->busVoltageValue, OUTPUT_VALUE_BUFFER_SZ);
 
 	nodeResetFilesNoData(mrbfsNode);
 
