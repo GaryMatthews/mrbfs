@@ -481,7 +481,15 @@ void mrbfsFileEnabledProgramWrite(MRBFSFileNode* mrbfsFileNode, const char* data
 	MRBusPacket txPkt;
 	int found = -1;
 	uint64_t programMask=0;
-	
+
+	// Set up the packet - initialize and fill in a few key values
+	memset(&txPkt, 0, sizeof(MRBusPacket));
+	txPkt.bus = mrbfsNode->bus;
+	txPkt.pkt[MRBUS_PKT_SRC] = 0;  // A source of 0 will be replaced by the transmit drivers with the interface addresses
+	txPkt.pkt[MRBUS_PKT_DEST] = mrbfsNode->address;
+	txPkt.pkt[MRBUS_PKT_LEN] = 15;
+	txPkt.pkt[MRBUS_PKT_TYPE] = 'C';
+
 	cleanCommandStr(data, dataSz, commandStr, sizeof(commandStr));
 
 	memset(enableCmd, 0, sizeof(enableCmd));
@@ -506,6 +514,12 @@ void mrbfsFileEnabledProgramWrite(MRBFSFileNode* mrbfsFileNode, const char* data
 	else if (0 == strcmp(enableCmd, "SET"))
 	{
 		numberListToMask(mrbfsNode, &programMask, programs);
+		txPkt.pkt[MRBUS_PKT_DATA] = 'E';
+		for(i=8; i>0; i--)
+		{
+			txPkt.pkt[MRBUS_PKT_DATA+i] = (uint8_t)programMask;
+			programMask >>=8;
+		}
 	
 	}
 	else
@@ -515,17 +529,8 @@ void mrbfsFileEnabledProgramWrite(MRBFSFileNode* mrbfsFileNode, const char* data
 	}
 
 
-	// Set up the packet - initialize and fill in a few key values
-	memset(&txPkt, 0, sizeof(MRBusPacket));
-	txPkt.bus = mrbfsNode->bus;
-	txPkt.pkt[MRBUS_PKT_SRC] = 0;  // A source of 0 will be replaced by the transmit drivers with the interface addresses
-	txPkt.pkt[MRBUS_PKT_DEST] = mrbfsNode->address;
-	txPkt.pkt[MRBUS_PKT_LEN] = 8;
-	txPkt.pkt[MRBUS_PKT_TYPE] = 'C';
-	txPkt.pkt[MRBUS_PKT_DATA] = 'M';
-	txPkt.pkt[MRBUS_PKT_DATA+1] = 0;
-	txPkt.pkt[MRBUS_PKT_DATA+2] = 0;
-	
+	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] sending new H2O enable", mrbfsNode->nodeName);
+
 	if (mrbfsNodeQueueTransmitPacket(mrbfsNode, &txPkt) < 0)
 		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_ERROR, "Node [%s] failed to send packet", mrbfsNode->nodeName);
 	
