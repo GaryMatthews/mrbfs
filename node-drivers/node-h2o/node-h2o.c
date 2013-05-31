@@ -538,6 +538,8 @@ void mrbfsFileEnabledProgramWrite(MRBFSFileNode* mrbfsFileNode, const char* data
 				SLRE_STRING,  sizeof(enableCmd), enableCmd,
 				SLRE_STRING,  sizeof(programs), programs);
 
+	numberListToMask(mrbfsNode, &programMask, programs);
+
 	for(i=8; i>0; i--)
 	{
 		txPkt.pkt[MRBUS_PKT_DATA+i] = (uint8_t)programMask;
@@ -548,17 +550,13 @@ void mrbfsFileEnabledProgramWrite(MRBFSFileNode* mrbfsFileNode, const char* data
 	if (0 == strcmp(enableCmd, "ENABLE") || 0 == strcmp(enableCmd, "EN"))
 	{
 		txPkt.pkt[MRBUS_PKT_DATA] = 'E';
-		numberListToMask(mrbfsNode, &programMask, programs);
 	}
 	else if (0 == strcmp(enableCmd, "DISABLE") || 0 == strcmp(enableCmd, "DIS")) 
 	{
 		txPkt.pkt[MRBUS_PKT_DATA] = 'D';
-		numberListToMask(mrbfsNode, &programMask, programs);
-	
 	}
 	else if (0 == strcmp(enableCmd, "SET"))
 	{
-		numberListToMask(mrbfsNode, &programMask, programs);
 		txPkt.pkt[MRBUS_PKT_DATA] = 'P';
 	}
 	else
@@ -573,6 +571,7 @@ void mrbfsFileEnabledProgramWrite(MRBFSFileNode* mrbfsFileNode, const char* data
 	if (mrbfsNodeQueueTransmitPacket(mrbfsNode, &txPkt) < 0)
 		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_ERROR, "Node [%s] failed to send packet", mrbfsNode->nodeName);
 	
+	nodeLocalStorage->enabledProgramCacheTimer = 0;
 }
 
 
