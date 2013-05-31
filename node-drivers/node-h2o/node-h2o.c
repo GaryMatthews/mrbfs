@@ -1278,7 +1278,7 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 				nodeLocalStorage->activeProgramBitmask += rxPkt->pkt[6+i];
 			}
 			
-			sprintf(nodeLocalStorage->activeProgramBitmaskValueStr, "%" PRIu64, nodeLocalStorage->activeProgramBitmask);
+			sprintf(nodeLocalStorage->activeProgramBitmaskValueStr, "%" PRIu64 "\n", nodeLocalStorage->activeProgramBitmask);
 			memset(nodeLocalStorage->activeProgramListValueStr, 0, MRB_H2O_PROGRAM_LIST_SZ);
 			for(i=0; i<nodeLocalStorage->programsUsed; i++)
 			{
