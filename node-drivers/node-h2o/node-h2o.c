@@ -95,6 +95,8 @@ typedef struct
 	MRBFSFileNode* file_zones[MRB_H2O_MAX_ZONES];
 	char* zoneValueStr[MRB_H2O_MAX_ZONES];	
 
+	MRBFSFileNode* file_zoneTimes[MRB_H2O_MAX_ZONES];
+
 	MRBFSFileNode* file_activeZoneList;
 	char* activeZoneListValueStr;	
 
@@ -295,6 +297,51 @@ void mrbfsFileZoneWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int data
 		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_ERROR, "Node [%s] failed to send packet", mrbfsNode->nodeName);
 	
 }
+
+void mrbfsFileZoneTimeWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int dataSz)
+{
+	MRBFSBusNode* mrbfsNode = (MRBFSBusNode*)(mrbfsFileNode->nodeLocalStorage);
+	NodeLocalStorage* nodeLocalStorage = (NodeLocalStorage*)(mrbfsNode->nodeLocalStorage);
+	int i;
+	char commandStr[17];
+	MRBusPacket txPkt;
+	uint8_t zone = 0xFF;
+	
+	cleanCommandStr(data, dataSz, commandStr, sizeof(commandStr));
+
+	for (i=0; i<nodeLocalStorage->zonesUsed; i++)
+	{
+		if (mrbfsFileNode == nodeLocalStorage->file_zoneTimes[i])
+		{
+			zone = i;
+			break;
+		}		
+	}
+
+	// If we didn't find a file pointer match in the zones, bail
+	if (0xFF == zone || zone > 15)
+		return;
+
+
+	// Only do a reset if we get a non-numeric or a zero
+	if (0 != atoi(commandStr))
+		return;
+
+	// Set up the packet - initialize and fill in a few key values
+	memset(&txPkt, 0, sizeof(MRBusPacket));
+	txPkt.bus = mrbfsNode->bus;
+	txPkt.pkt[MRBUS_PKT_SRC] = 0;  // A source of 0 will be replaced by the transmit drivers with the interface addresses
+	txPkt.pkt[MRBUS_PKT_DEST] = mrbfsNode->address;
+	txPkt.pkt[MRBUS_PKT_LEN] = 9;
+	txPkt.pkt[MRBUS_PKT_TYPE] = 'C';
+	txPkt.pkt[MRBUS_PKT_DATA] = 'X';
+	txPkt.pkt[MRBUS_PKT_DATA+1] = 'Z';
+	txPkt.pkt[MRBUS_PKT_DATA+2] = zone;
+	
+	if (mrbfsNodeQueueTransmitPacket(mrbfsNode, &txPkt) < 0)
+		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_ERROR, "Node [%s] failed to send packet", mrbfsNode->nodeName);
+}
+
 
 void numberListToMask(MRBFSBusNode* mrbfsNode, uint64_t* mask, const char* remainingString)
 {
@@ -813,6 +860,83 @@ size_t mrbfsFileEnabledProgramRead(MRBFSFileNode* mrbfsFileNode, char *buf, size
 
 
 
+
+int filterZoneTimerReadPkt(MRBusPacket* rxPkt, uint8_t srcAddress, void* otherFilterData)
+{
+	uint8_t zone = *((uint8_t*)otherFilterData);
+	if (rxPkt->pkt[MRBUS_PKT_SRC] == srcAddress 
+		&& 'c' == rxPkt->pkt[MRBUS_PKT_TYPE]
+		&& 'z' == rxPkt->pkt[MRBUS_PKT_DATA]
+		&& zone == rxPkt->pkt[MRBUS_PKT_DATA+1] )
+		return(1);
+	return(0);
+}
+
+size_t mrbfsFileZoneTimeRead(MRBFSFileNode* mrbfsFileNode, char *buf, size_t size, off_t offset)
+{
+	MRBFSBusNode* mrbfsNode = (MRBFSBusNode*)(mrbfsFileNode->nodeLocalStorage);
+	NodeLocalStorage* nodeLocalStorage = (NodeLocalStorage*)(mrbfsNode->nodeLocalStorage);
+	MRBusPacket rxPkt, txPkt;
+	int i;
+	uint8_t program = 0xFF;
+	int foundResponse = 0;
+	char responseBuffer[MRB_H2O_PROGRAM_LIST_SZ+1];
+	size_t len=0;
+	uint8_t zone = 0xFF;
+	uint16_t newRunTime = 0;
+	
+	for (i=0; i<nodeLocalStorage->zonesUsed; i++)
+	{
+		if (mrbfsFileNode == nodeLocalStorage->file_zoneTimes[i])
+		{
+			zone = i;
+			break;
+		}		
+	}
+
+	// If it doesn't match the enabled program list file pointer, throw a WTF?
+	if (0xFF == zone)
+		return -ENOENT;
+
+	memset(responseBuffer, 0, sizeof(responseBuffer));
+
+	// Set up the packet - initialize and fill in a few key values
+	memset(&txPkt, 0, sizeof(MRBusPacket));
+	txPkt.bus = mrbfsNode->bus;    // Important to set the transmit pkt's bus number so it goes to the right transmitters
+	txPkt.pkt[MRBUS_PKT_SRC] = 0;  // A source of 0 will be replaced by the transmit drivers with the interface addresses
+	txPkt.pkt[MRBUS_PKT_DEST] = mrbfsNode->address; // The destination is the node's current address
+	txPkt.pkt[MRBUS_PKT_LEN] = 8;     // Length of 7
+	txPkt.pkt[MRBUS_PKT_TYPE] = 'C';  // Packet type of Command
+	txPkt.pkt[MRBUS_PKT_DATA] = 'Z';  // Subtype of 'Z' - zone time read
+	txPkt.pkt[MRBUS_PKT_DATA+1] = zone;
+
+	foundResponse = mrbfsNodeTxAndGetResponse(mrbfsNode, &nodeLocalStorage->rxq, &nodeLocalStorage->requestRXFeed, &txPkt, &rxPkt, 1000, 3, &filterZoneTimerReadPkt, (void*)&zone);
+
+	if(!foundResponse)
+	{
+		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_WARNING, "Node [%s], no response to program enable read request", mrbfsNode->nodeName);
+		sprintf(responseBuffer, "No data\n");			
+	} 
+	else
+	{
+		snprintf(responseBuffer, sizeof(responseBuffer)-1, "%u%s", ((((uint32_t)rxPkt.pkt[8])<<8) + (uint32_t)rxPkt.pkt[9]), nodeLocalStorage->suppressUnits?"":" min\n" );		
+	}
+
+	// This is common read() code that takes whatever's in responseBuffer and puts it into the buffer being
+	// given to us by the filesystem
+	len = strlen(responseBuffer);
+	if (offset < len) 
+	{
+		if (offset + size > len)
+			size = len - offset;
+		memcpy(buf, responseBuffer + offset, size);
+	} else
+		size = 0;		
+
+	return(size);
+}
+
+
 size_t mrbfsFileNodeRead(MRBFSFileNode* mrbfsFileNode, char *buf, size_t size, off_t offset)
 {
 	MRBFSBusNode* mrbfsNode = (MRBFSBusNode*)(mrbfsFileNode->nodeLocalStorage);
@@ -924,13 +1048,17 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 	{
 		char zoneDefaultFilename[32];
 		char zoneKeyname[32];
+		char zoneTimeFilename[128];		
 		const char* zoneFilename = zoneDefaultFilename;
 
 		sprintf(zoneDefaultFilename, "zone%02d", i+1);
 		sprintf(zoneKeyname, "zone%02d_name", i+1);
 		zoneFilename = mrbfsNodeOptionGet(mrbfsNode, zoneKeyname, zoneDefaultFilename);
 
+		snprintf(zoneTimeFilename, sizeof(zoneTimeFilename)-1, "%s_ttl_runtime", zoneFilename);
+
 		nodeLocalStorage->file_zones[i] = mrbfsNodeCreateFile_RW_STR(mrbfsNode, zoneFilename, &nodeLocalStorage->zoneValueStr[i], OUTPUT_VALUE_BUFFER_SZ, &mrbfsFileZoneWrite);
+		nodeLocalStorage->file_zoneTimes[i] = mrbfsNodeCreateFile_RW_READBACK(mrbfsNode, zoneTimeFilename, &mrbfsFileZoneTimeRead, &mrbfsFileZoneTimeWrite);
 	}
 
 	nodeLocalStorage->file_activeZoneList = mrbfsNodeCreateFile_RO_STR(mrbfsNode, "activeZoneList", &nodeLocalStorage->activeZoneListValueStr, MRB_H2O_ZONE_LIST_SZ);
