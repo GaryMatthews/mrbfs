@@ -345,7 +345,7 @@ int mrbfsOpen(const char *path, struct fuse_file_info *fi)
 	mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsOpen(%s) found file", path);
 
 	if ( ((fi->flags & (O_RDONLY|O_WRONLY|O_RDWR)) != O_RDONLY)
-		&& ( (fileNode->fileType != FNODE_RW_VALUE_STR && fileNode->fileType != FNODE_RW_VALUE_INT) || (NULL == fileNode->mrbfsFileNodeWrite)) )
+		&& ( (fileNode->fileType != FNODE_RW_VALUE_STR && fileNode->fileType != FNODE_RW_VALUE_INT && fileNode->fileType != FNODE_RW_VALUE_READBACK) || (NULL == fileNode->mrbfsFileNodeWrite)) )
 	{
 		mrbfsLogMessage(MRBFS_LOG_DEBUG, "mrbfsOpen(%s) rejected - not writable node", path);
 		return -EACCES;
