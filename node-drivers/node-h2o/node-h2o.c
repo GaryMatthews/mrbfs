@@ -374,7 +374,7 @@ void numberListToMask(MRBFSBusNode* mrbfsNode, uint64_t* mask, const char* remai
 
 		thisNumber = atoi(thisNumberStr);
 		if (thisNumber < 65 && thisNumber > 0)
-			*mask |= 1<<(thisNumber-1);
+			*mask |= ((uint64_t)1)<<(thisNumber-1);
 
 		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] numberListToMask, after atoi=[%d]", mrbfsNode->nodeName, thisNumber);
 
@@ -540,6 +540,8 @@ void mrbfsFileEnabledProgramWrite(MRBFSFileNode* mrbfsFileNode, const char* data
 
 	numberListToMask(mrbfsNode, &programMask, programs);
 
+	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] enabledProgramList mask=[%016lX]", mrbfsNode->nodeName, programMask);
+	
 	for(i=8; i>0; i--)
 	{
 		txPkt.pkt[MRBUS_PKT_DATA+i] = (uint8_t)programMask;
