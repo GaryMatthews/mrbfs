@@ -1284,7 +1284,7 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 			memset(nodeLocalStorage->activeProgramListValueStr, 0, MRB_H2O_PROGRAM_LIST_SZ);
 			for(i=0; i<nodeLocalStorage->programsUsed; i++)
 			{
-				if (zoneState & 1<<(i))
+				if (nodeLocalStorage->activeProgramBitmask & ((uint64_t)1)<<(i))
 				{
 					if (programList == nodeLocalStorage->activeProgramListValueStr)
 					{
