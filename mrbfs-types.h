@@ -31,7 +31,8 @@ typedef enum
 	MRBFS_LOG_ERROR   = 1,
 	MRBFS_LOG_WARNING = 2,
 	MRBFS_LOG_INFO    = 3,
-	MRBFS_LOG_DEBUG   = 7
+	MRBFS_LOG_DEBUG   = 7,
+	MRBFS_LOG_ANNOYING = 11
 } mrbfsLogLevel;
 
 typedef struct
