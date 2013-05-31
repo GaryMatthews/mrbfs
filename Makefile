@@ -2,9 +2,7 @@ LD=ar
 LDFLAGS=r
 CC=gcc
 LDFLAGS=-lfuse -ldl
-CFLAGS=-I./include/ -I/usr/include/fuse -I./libconfuse/src/ -O2 -D_FILE_OFFSET_BITS=64 -D_REENTRANT -D_GNU_SOURCE -pthread
-#CFLAGS=-I./include/ -O0 -fPIC -ggdb -DUGLDEBUGSET=2 -ansi
-#CFLAGS=-I./include/ -O3  -ansi
+CFLAGS=-I./include/ -I/usr/include/fuse -I./libconfuse/src/ -O2 -D_FILE_OFFSET_BITS=64 -D_REENTRANT -D_GNU_SOURCE -pthread 
 
 MRBFS_HEADERS=$(shell find include/ -name "*.h" -print)
 
