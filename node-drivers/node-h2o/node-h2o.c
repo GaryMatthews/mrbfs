@@ -257,7 +257,7 @@ void mrbfsFileZoneWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int data
 	int i;
 	char commandStr[17];
 	MRBusPacket txPkt;
-	int found = -1;
+	uint8_t zone = 0xFF;
 	uint16_t newRunTime = 0;
 	
 	cleanCommandStr(data, dataSz, commandStr, sizeof(commandStr));
@@ -266,27 +266,16 @@ void mrbfsFileZoneWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int data
 	{
 		if (mrbfsFileNode == nodeLocalStorage->file_zones[i])
 		{
-			found = i;
+			zone = i;
 			break;
 		}		
 	}
 
 	// If we didn't find a file pointer match in the zones, bail
-	if (-1 == found)
+	if (0xFF == zone || zone > 15)
 		return;
 
-
-	if (0 != (newRunTime = atoi(commandStr)))
-	{
-		// Numbers are assumed to be a new manual run request in minutes
-		// Do nothing, it's already handled in the assignment	
-	}
-	else if (0 == strcmp(commandStr, "Off"))
-	{
-		newRunTime = 0;
-	}
-	else
-		return;
+	newRunTime = atoi(commandStr);
 
 	newRunTime = MIN(newRunTime, 1091);
 
@@ -295,11 +284,12 @@ void mrbfsFileZoneWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int data
 	txPkt.bus = mrbfsNode->bus;
 	txPkt.pkt[MRBUS_PKT_SRC] = 0;  // A source of 0 will be replaced by the transmit drivers with the interface addresses
 	txPkt.pkt[MRBUS_PKT_DEST] = mrbfsNode->address;
-	txPkt.pkt[MRBUS_PKT_LEN] = 8;
+	txPkt.pkt[MRBUS_PKT_LEN] = 10;
 	txPkt.pkt[MRBUS_PKT_TYPE] = 'C';
 	txPkt.pkt[MRBUS_PKT_DATA] = 'M';
-	txPkt.pkt[MRBUS_PKT_DATA+1] = 0xFF & (newRunTime / 256);
-	txPkt.pkt[MRBUS_PKT_DATA+2] = 0xFF & newRunTime;
+	txPkt.pkt[MRBUS_PKT_DATA+1] = zone;
+	txPkt.pkt[MRBUS_PKT_DATA+2] = 0xFF & (newRunTime / 256);
+	txPkt.pkt[MRBUS_PKT_DATA+3] = 0xFF & newRunTime;
 	
 	if (mrbfsNodeQueueTransmitPacket(mrbfsNode, &txPkt) < 0)
 		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_ERROR, "Node [%s] failed to send packet", mrbfsNode->nodeName);
@@ -501,26 +491,28 @@ void mrbfsFileEnabledProgramWrite(MRBFSFileNode* mrbfsFileNode, const char* data
 				SLRE_STRING,  sizeof(enableCmd), enableCmd,
 				SLRE_STRING,  sizeof(programs), programs);
 
+	for(i=8; i>0; i--)
+	{
+		txPkt.pkt[MRBUS_PKT_DATA+i] = (uint8_t)programMask;
+		programMask >>=8;
+	}
+
+
 	if (0 == strcmp(enableCmd, "ENABLE") || 0 == strcmp(enableCmd, "EN"))
 	{
+		txPkt.pkt[MRBUS_PKT_DATA] = 'E';
 		numberListToMask(mrbfsNode, &programMask, programs);
-		
 	}
 	else if (0 == strcmp(enableCmd, "DISABLE") || 0 == strcmp(enableCmd, "DIS")) 
 	{
+		txPkt.pkt[MRBUS_PKT_DATA] = 'D';
 		numberListToMask(mrbfsNode, &programMask, programs);
 	
 	}
 	else if (0 == strcmp(enableCmd, "SET"))
 	{
 		numberListToMask(mrbfsNode, &programMask, programs);
-		txPkt.pkt[MRBUS_PKT_DATA] = 'E';
-		for(i=8; i>0; i--)
-		{
-			txPkt.pkt[MRBUS_PKT_DATA+i] = (uint8_t)programMask;
-			programMask >>=8;
-		}
-	
+		txPkt.pkt[MRBUS_PKT_DATA] = 'P';
 	}
 	else
 	{
@@ -731,7 +723,7 @@ int filterEnableReadPkt(MRBusPacket* rxPkt, uint8_t srcAddress, void* otherFilte
 {
 	if (rxPkt->pkt[MRBUS_PKT_SRC] == srcAddress 
 		&& 'c' == rxPkt->pkt[MRBUS_PKT_TYPE]
-		&& 'g' == rxPkt->pkt[MRBUS_PKT_DATA])
+		&& 'p' == rxPkt->pkt[MRBUS_PKT_DATA])
 		return(1);
 	return(0);
 }
@@ -769,7 +761,7 @@ size_t mrbfsFileEnabledProgramRead(MRBFSFileNode* mrbfsFileNode, char *buf, size
 		txPkt.pkt[MRBUS_PKT_DEST] = mrbfsNode->address; // The destination is the node's current address
 		txPkt.pkt[MRBUS_PKT_LEN] = 7;     // Length of 7
 		txPkt.pkt[MRBUS_PKT_TYPE] = 'C';  // Packet type of Command
-		txPkt.pkt[MRBUS_PKT_DATA] = 'G';  // Subtype of 'G' - enables read
+		txPkt.pkt[MRBUS_PKT_DATA] = 'P';  // Subtype of 'G' - enables read
 
 		foundResponse = mrbfsNodeTxAndGetResponse(mrbfsNode, &nodeLocalStorage->rxq, &nodeLocalStorage->requestRXFeed, &txPkt, &rxPkt, 1000, 3, &filterEnableReadPkt, NULL);
 
