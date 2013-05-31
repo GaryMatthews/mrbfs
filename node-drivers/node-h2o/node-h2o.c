@@ -208,7 +208,7 @@ static void cleanCommandStr(const char* inStr, size_t inStrSz, char* outStr, siz
 		if (inStr[j] == 0x0A || inStr[j] == 0x0C || inStr[j] == 0)
 			break;
 
-		if (isalnum(inStr[j]))
+		if (isprint(inStr[j]))
 			outStr[i] = toupper(inStr[j]);
 
 		j++;
@@ -306,6 +306,47 @@ void mrbfsFileZoneWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int data
 	
 }
 
+void numberListToMask(MRBFSBusNode* mrbfsNode, uint64_t* mask, const char* remainingString)
+{
+	char oldRemainingString[256];
+	char newRemainingString[256];
+	char thisNumberStr[16];
+	const char* error;
+	int thisNumber=0;
+
+	memset(oldRemainingString, 0, sizeof(oldRemainingString));
+
+	strncpy(oldRemainingString, remainingString, sizeof(oldRemainingString-1));
+
+	while (0 != strlen(oldRemainingString))
+	{
+		memset(thisNumberStr, 0, sizeof(thisNumberStr));
+		memset(newRemainingString, 0, sizeof(newRemainingString));
+
+		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] numberListToMask, input=[%s]", mrbfsNode->nodeName, remainingString);
+
+		error = slre_match(0, "^(\\d+)[ ,]*(.*)",
+					oldRemainingString, strlen(oldRemainingString),
+					SLRE_STRING,  sizeof(thisNumberStr), thisNumberStr,
+					SLRE_STRING,  sizeof(newRemainingString), newRemainingString);
+
+	//	if (NULL != error)
+	//		printf("Error non-null, [%s]\n\n", error);
+
+		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] numberListToMask, thisNum=[%s], remaining=[%s]", mrbfsNode->nodeName, thisNumberStr, newRemainingString);
+
+		thisNumber = atoi(thisNumberStr);
+		if (thisNumber < 65 && thisNumber > 0)
+			*mask |= 1<<(thisNumber-1);
+
+		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] numberListToMask, after atoi=[%d]", mrbfsNode->nodeName, thisNumber);
+
+		strncpy(oldRemainingString, newRemainingString, sizeof(oldRemainingString-1));
+	}
+
+	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] numberListToMask returning", mrbfsNode->nodeName);
+	return;
+}
 
 
 void mrbfsFileProgramWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int dataSz)
@@ -316,8 +357,10 @@ void mrbfsFileProgramWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int d
 	int i,j;
 	uint8_t program = 0xFF;
 	char commandStr[65];
-	int startHour=0, startMinute=0, endHour=0, endMinute=0, zoneMask=0;
+	int startHour=0, startMinute=0, endHour=0, endMinute=0;
 	char days[12];
+	char zoneStr[256];
+	uint64_t zoneMask=0;
 	const char *error;
 
 	cleanCommandStr(data, dataSz, commandStr, sizeof(commandStr));
@@ -343,24 +386,38 @@ void mrbfsFileProgramWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int d
 
 	// If we didn't find a file pointer match in the programs, bail, don't know where this came from
 	if (0xFF == program)
+	{
+		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_ERROR, "Node [%s] can't figure out which program I am...", mrbfsNode->nodeName);
 		return;
-
-	// Program input in the form of HHMM-HHMM Zzz....
+	}
+	
+	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] right before the fun regex", mrbfsNode->nodeName);
+	
+	// Program input in the form of HHMM-HHMM DD ZZ,ZZ,ZZ
 	memset(days, 0, sizeof(days));
-	error = slre_match(0, "^\\s*([0-2][0-9])([0-5][0-9])-([0-2][0-9])([0-5][0-9])\\s*([2UMTWRFS]+)\\s*(\\d+)",
+	memset(zoneStr, 0, sizeof(zoneStr));
+	
+	error = slre_match(0, "^\\s*([012]\\d)([012345]\\d)-([012]\\d)([012345]\\d)\\s+([2UMTWRFS]+)\\s*(.*)",
 				commandStr, strlen(commandStr),
 				SLRE_INT, sizeof(startHour), &startHour,
 				SLRE_INT, sizeof(startMinute), &startMinute,
 				SLRE_INT, sizeof(endHour), &endHour,
 				SLRE_INT, sizeof(endMinute), &endMinute,
 				SLRE_STRING,  sizeof(days), days,
-				SLRE_INT, sizeof(zoneMask), &zoneMask);
+				SLRE_STRING, sizeof(zoneStr), zoneStr);
 
-	if (NULL != error || startHour > 23 || endHour > 23) 
+	if (startHour > 23 || endHour > 23) 
 	{
-		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_ERROR, "Node [%s] failed to parse program string [%s] - error [%s]", mrbfsNode->nodeName, commandStr, (NULL==error)?"ValueError":error);	
+		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_ERROR, "Node [%s] failed to parse program string [%s] - hours out of range", mrbfsNode->nodeName, commandStr);	
 		return;
 	}
+
+	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] right after the fun regex - zoneStr=[%s]", mrbfsNode->nodeName, zoneStr);
+
+	zoneMask = 0;
+	numberListToMask(mrbfsNode, &zoneMask, zoneStr);
+
+	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] after the number list to mask function", mrbfsNode->nodeName);
 
 	txPkt.pkt[MRBUS_PKT_DATA+1] = (uint8_t)program;
 	txPkt.pkt[MRBUS_PKT_DATA+2] = 0; // Config byte, nothing defined here
@@ -405,35 +462,12 @@ void mrbfsFileProgramWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int d
 	}
 
 	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] sending program [%d] programming packet", mrbfsNode->nodeName, program);
+
+	if (mrbfsNodeQueueTransmitPacket(mrbfsNode, &txPkt) < 0)
+		(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_ERROR, "Node [%s] failed to send packet", mrbfsNode->nodeName);
 	
-}
-
-void numericParseRecurse(uint64_t* mask, const char* remainingString)
-{
-	char newRemainingString[256];
-	char thisNumberStr[16];
-	const char* error;
-	int thisNumber=0;
-
-	memset(thisNumberStr, 0, sizeof(thisNumberStr));
-	memset(newRemainingString, 0, sizeof(newRemainingString));
-
-	error = slre_match(0, "^(\\d+)[ ,]*(.*)",
-				remainingString, strlen(remainingString),
-				SLRE_STRING,  sizeof(thisNumberStr), thisNumberStr,
-				SLRE_STRING,  sizeof(newRemainingString), newRemainingString);
-
-	if (NULL != error)
-		printf("Error non-null, [%s]\n\n", error);
-
-	thisNumber = atoi(thisNumberStr);
-	if (thisNumber < 65 && thisNumber > 0)
-		*mask |= 1<<(thisNumber-1);
-
-	if (0 != strlen(newRemainingString))
-		numericParseRecurse(mask, newRemainingString);
-
-	return;
+	nodeLocalStorage->programCacheTimers[program] = 0;
+	
 }
 
 void mrbfsFileEnabledProgramWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int dataSz)
@@ -461,17 +495,17 @@ void mrbfsFileEnabledProgramWrite(MRBFSFileNode* mrbfsFileNode, const char* data
 
 	if (0 == strcmp(enableCmd, "ENABLE") || 0 == strcmp(enableCmd, "EN"))
 	{
-		numericParseRecurse(&programMask, programs);
+		numberListToMask(mrbfsNode, &programMask, programs);
 		
 	}
 	else if (0 == strcmp(enableCmd, "DISABLE") || 0 == strcmp(enableCmd, "DIS")) 
 	{
-		numericParseRecurse(&programMask, programs);
+		numberListToMask(mrbfsNode, &programMask, programs);
 	
 	}
 	else if (0 == strcmp(enableCmd, "SET"))
 	{
-		numericParseRecurse(&programMask, programs);
+		numberListToMask(mrbfsNode, &programMask, programs);
 	
 	}
 	else
@@ -606,14 +640,16 @@ size_t mrbfsFileProgramRead(MRBFSFileNode* mrbfsFileNode, char *buf, size_t size
 		}
 		else
 		{
-			char dayBuffer[9], *dayBufferPtr;
+			char dayBuffer[9], *dayBufferPtr = dayBuffer;
+			char zoneBuffer[MRB_H2O_ZONE_LIST_SZ+1], *zoneBufferPtr = zoneBuffer;
+			
 			memset(dayBuffer, 0, sizeof(dayBuffer));
-			dayBufferPtr = dayBuffer;
-
+			memset(zoneBuffer, 0, sizeof(zoneBuffer));
+			
 			// Actually got a response - parse
 			for(i=7; i>=0; i--)
 			{
-				if ((1<<i) & rxPkt.pkt[14])
+				if ((1<<i) & rxPkt.pkt[15])
 				{
 					switch(i)
 					{
@@ -646,10 +682,28 @@ size_t mrbfsFileProgramRead(MRBFSFileNode* mrbfsFileNode, char *buf, size_t size
 				}
 		
 			}
+
+			for(i=0; i<MRB_H2O_MAX_ZONES; i++)
+			{
+				if (rxPkt.pkt[14 - (i/8)] & (1<<(i%8)))
+				{
+					if (zoneBufferPtr == zoneBuffer)
+					{
+						sprintf(zoneBufferPtr, "%02d", i+1);
+						zoneBufferPtr += 2;
+					}
+					else
+					{
+						sprintf(zoneBufferPtr, ",%02d", i+1);
+						zoneBufferPtr += 3;
+					}
+				}
+			}
+
 		
-			snprintf(responseBuffer, sizeof(responseBuffer)-1, "%02d%02d-%02d%02d %s\n", rxPkt.pkt[9], rxPkt.pkt[10], rxPkt.pkt[11], rxPkt.pkt[12], dayBuffer);
+			snprintf(responseBuffer, sizeof(responseBuffer)-1, "%02d%02d-%02d%02d %s %s\n", rxPkt.pkt[9], rxPkt.pkt[10], rxPkt.pkt[11], rxPkt.pkt[12], dayBuffer, zoneBuffer);
 			strncpy(nodeLocalStorage->programValueStr[program], responseBuffer, OUTPUT_VALUE_BUFFER_SZ-1);
-			nodeLocalStorage->programCacheTimers[program]= currentTime;			
+			nodeLocalStorage->programCacheTimers[program] = currentTime;			
 		}
 	}	
 	// This is common read() code that takes whatever's in responseBuffer and puts it into the buffer being
@@ -725,7 +779,7 @@ size_t mrbfsFileEnabledProgramRead(MRBFSFileNode* mrbfsFileNode, char *buf, size
 			char* responseBufferPtr = responseBuffer;
 			for(i=0; i<64; i++)
 			{
-				if (txPkt.pkt[(MRBUS_PKT_DATA+1) + 7 - (i/8)] & (1<<(i%8)))
+				if (rxPkt.pkt[(MRBUS_PKT_DATA+1) + 7 - (i/8)] & (1<<(i%8)))
 				{
 					if (responseBufferPtr == responseBuffer)
 					{
@@ -899,13 +953,13 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 		char programKeyname[32];
 		const char* programFilename = programDefaultFilename;
 
-		sprintf(programDefaultFilename, "program%02d", i-1);
-		sprintf(programKeyname, "program%02d_name", i-1);
+		sprintf(programDefaultFilename, "program%02d", i+1);
+		sprintf(programKeyname, "program%02d_name", i+1);
 
 		programFilename = mrbfsNodeOptionGet(mrbfsNode, programKeyname, programDefaultFilename);
 		nodeLocalStorage->file_programs[i] = mrbfsNodeCreateFile_RW_READBACK(mrbfsNode, programFilename, &mrbfsFileProgramRead, &mrbfsFileProgramWrite);
 				// Readbacks generally don't have attached storage - since we use it for caching, allocate and assign here
-		nodeLocalStorage->file_programs[i]->value.valueStr = nodeLocalStorage->programValueStr[i] = calloc(1, OUTPUT_VALUE_BUFFER_SZ);
+		nodeLocalStorage->file_programs[i]->value.valueStr = nodeLocalStorage->programValueStr[i] = calloc(1, 256);
 	}
 
 	nodeLocalStorage->file_enabledProgramList = mrbfsNodeCreateFile_RW_READBACK(mrbfsNode, "enabledProgramList", &mrbfsFileEnabledProgramRead, &mrbfsFileEnabledProgramWrite);
