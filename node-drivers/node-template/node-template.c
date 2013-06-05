@@ -79,7 +79,10 @@ typedef struct
 	MRBFSFileNode* file_eepromNodeAddr;
 	MRBFSFileNode* file_sendPing;
 	char rxPacketStr[RX_PKT_BUFFER_SZ];
-	UINT8 requestRXFeed;
+
+	pthread_mutex_t rxFeedLock;
+	volatile uint8_t requestRXFeed;
+
 	MRBusPacketQueue rxq;
 	int timeout;
 	time_t lastUpdated;	
@@ -186,7 +189,6 @@ void mrbfsFileNodeWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int data
 	}
 }
 
-
 /*******************************************************
 Public Function:  mrbfsFileNodeRead()
 
@@ -220,21 +222,38 @@ Purpose:  The mrbfsFileNodeRead function is called for
 
 *******************************************************/
 
+// filterEepromReadPkt is a mrbfsRxPktFilter that will be used in mrbfsFileNodeRead
+
+static int filterEepromReadPkt(MRBusPacket* rxPkt, uint8_t srcAddress, void* otherFilterData)
+{
+	uint8_t eepromAddressToRead = *(uint8_t*)otherFilterData;
+	if (rxPkt->pkt[MRBUS_PKT_SRC] == srcAddress 
+		&& 'r' == rxPkt->pkt[MRBUS_PKT_TYPE]
+		&& eepromAddressToRead == rxPkt->pkt[MRBUS_PKT_DATA])
+		return(1);
+	return(0);
+}
+
 size_t mrbfsFileNodeRead(MRBFSFileNode* mrbfsFileNode, char *buf, size_t size, off_t offset)
 {
 	MRBFSBusNode* mrbfsNode = (MRBFSBusNode*)(mrbfsFileNode->nodeLocalStorage);
 	NodeLocalStorage* nodeLocalStorage = (NodeLocalStorage*)(mrbfsNode->nodeLocalStorage);
-	MRBusPacket pkt;
+	MRBusPacket rxPkt;
 	int timeout = 0;
 	int foundResponse = 0;
-	char responseBuffer[256] = "";
+	char responseBuffer[256];
 	size_t len=0;
+
+	memset(responseBuffer, 0, sizeof(responseBuffer));
 
 	if (mrbfsFileNode == nodeLocalStorage->file_eepromNodeAddr)
 	{
 		// When the eepromNodeAddr file is read, it sends a packet out to the node to read
 		// its eeprom address 0x00.
 		MRBusPacket txPkt;
+		// 0 is the node address in eeprom - change to read other things.
+		uint8_t eepromAddressToRead = 0; 
+	
 		// Set up the packet - initialize and fill in a few key values
 		memset(&txPkt, 0, sizeof(MRBusPacket));
 		txPkt.bus = mrbfsNode->bus;    // Important to set the transmit pkt's bus number so it goes to the right transmitters
@@ -242,52 +261,24 @@ size_t mrbfsFileNodeRead(MRBFSFileNode* mrbfsFileNode, char *buf, size_t size, o
 		txPkt.pkt[MRBUS_PKT_DEST] = mrbfsNode->address; // The destination is the node's current address
 		txPkt.pkt[MRBUS_PKT_LEN] = 7;     // Length of 7
 		txPkt.pkt[MRBUS_PKT_TYPE] = 'R';  // Packet type of EEPROM read
-		txPkt.pkt[MRBUS_PKT_DATA] = 0;    // EEPROM read address 0, the node's address byte
+		txPkt.pkt[MRBUS_PKT_DATA] = eepromAddressToRead;    // EEPROM read address 0, the node's address byte
 
-		// Spin on requestRXFeed - we need to make sure we're the only one listening
-		// This should probably be a mutex
-		while(nodeLocalStorage->requestRXFeed);
+		// mrbfsNodeTxAndGetResponse will try (retry) times to send a query and await a response that satisfies (mrbfsRxPktFilter)
+		// It will respond with either zero (not found) or non-zero (found response)
+		// This sets it up to look for eeprom address (eepromAddressToRead) using filter function (filterEepromReadPkt), retrying 3 times
+		//  and timing out after 500ms per try
+		foundResponse = mrbfsNodeTxAndGetResponse(mrbfsNode, &nodeLocalStorage->rxq, 
+			&nodeLocalStorage->rxFeedLock, &nodeLocalStorage->requestRXFeed, 
+			&txPkt, &rxPkt, 500, 3, &filterEepromReadPkt, (void*)&eepromAddressToRead);
 
-		// Once nobody else is using the rx feed, grab it and initialize the queue
-		nodeLocalStorage->requestRXFeed = 1;
-		mrbusPacketQueueInitialize(&nodeLocalStorage->rxq);
-
-		// Once we're listening to the bus for responses, send our query
-		if (mrbfsNodeQueueTransmitPacket(mrbfsNode, &txPkt) < 0)
-			(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_ERROR, "Node [%s] failed to send packet", mrbfsNode->nodeName);
-
-		// Now, wait.  Spin in a loop with a sleep so we don't hog the processor
-		// Currently this yields a 1s timeout.  Break as soon as we have our answer packet.
-		for(timeout=0; !foundResponse && timeout<1000; timeout++)
-		{
-			while(!foundResponse && mrbusPacketQueueDepth(&nodeLocalStorage->rxq))
-			{
-				memset(&pkt, 0, sizeof(MRBusPacket));
-				mrbusPacketQueuePop(&nodeLocalStorage->rxq, &pkt);
-				(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Readback [%s] saw pkt [%02X->%02X] ['%c']", mrbfsNode->nodeName, pkt.pkt[MRBUS_PKT_SRC], pkt.pkt[MRBUS_PKT_DEST], pkt.pkt[MRBUS_PKT_TYPE]);
-
-				if (pkt.pkt[MRBUS_PKT_SRC] == mrbfsNode->address && pkt.pkt[MRBUS_PKT_TYPE] == 'r')
-					foundResponse = 1;
-			}
-			usleep(1000);
-		}
-		// We're done, somebody else can have the RX feed
-		nodeLocalStorage->requestRXFeed = 0;
-
-		// If we didn't get an answer, just log a warning (MRBus is not guaranteed communications, after all)
-		// A smarter node could implement retry logic
-		if(!foundResponse)
-		{
-			(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_WARNING, "Node [%s], no response to EEPROM read request", mrbfsNode->nodeName);
-			return(size = 0);
-		}
-		// If we're here, we have a response.  Write it to the response buffer (locally) and the end of this function will put it in the
+		// If foundResponse != 0, we have a response.  Write it to the response buffer (locally) and the end of this function will put it in the
 		// actual file read buffer
-		sprintf(responseBuffer, "0x%02X\n", pkt.pkt[MRBUS_PKT_DATA]);
+		if(foundResponse)
+			sprintf(responseBuffer, "0x%02X\n", rxPkt.pkt[MRBUS_PKT_DATA]);
+
 	}
 	
 	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] responding to readback on [%s] with [%s]", mrbfsNode->nodeName, mrbfsFileNode->fileName, responseBuffer);
-
 
 	// This is common read() code that takes whatever's in responseBuffer and puts it into the buffer being
 	// given to us by the filesystem
@@ -357,6 +348,10 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 	// to us every time this node is called
 	mrbfsNode->nodeLocalStorage = (void*)nodeLocalStorage;
 
+	// Read-back functions need access to the receive queue, which needs a lock.  Hey look, here's a lock!
+	nodeLocalStorage->requestRXFeed = 0;
+	mrbfsNodeMutexInit(&nodeLocalStorage->rxFeedLock);
+
 	// Initialize pieces of the local storage and create the files our node will use to communicate with the user
 	nodeLocalStorage->timeout = atoi(mrbfsNodeOptionGet(mrbfsNode, "timeout", "none"));
 	nodeLocalStorage->lastUpdated = 0;
@@ -413,7 +408,7 @@ Purpose:  The mrbfsNodeTick() function gets called
 int mrbfsNodeTick(MRBFSBusNode* mrbfsNode, time_t currentTime)
 {
 	NodeLocalStorage* nodeLocalStorage = mrbfsNode->nodeLocalStorage;
-	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_INFO, "Node [%s] received tick", mrbfsNode->nodeName);
+	(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_ANNOYING, "Node [%s] received tick", mrbfsNode->nodeName);
 
 	// If the node receive timeout is 0, that means it's not set and data should live forever
 	if (0 == nodeLocalStorage->timeout)
@@ -539,7 +534,14 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 	// give them a feed, push the current packet onto our receive queue
 	if (nodeLocalStorage->requestRXFeed)
 		mrbusPacketQueuePush(&nodeLocalStorage->rxq, rxPkt, 0);
-
+/*
+	typedef struct
+	{
+		uint32_t logDepth;
+		uint32_t headIdx;
+		MRBusPacket* pkt;
+	} MRBFSPktLog;
+*/
 	// Log the receipt of the current packet into the buffer backing "rxPackets"
 	{
 		char *newStart = nodeLocalStorage->rxPacketStr;
