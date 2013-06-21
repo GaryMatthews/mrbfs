@@ -85,6 +85,8 @@ static int mrbfsCI2SerialOpen(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
    tcflush(fd, TCIFLUSH);
 	tcsetattr(fd, TCSAFLUSH, &options);
 
+	write(fd, "\x0A\x0D", strlen("\x0A\x0D"));
+
 	(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface [%s] - Serial startup complete", mrbfsInterfaceDriver->interfaceName);
 
 	return(fd);
@@ -126,6 +128,20 @@ int trimNewlines(char* str, int trimval)
 	return(newlines);
 }
 
+const char* mrbfsInterfaceOptionGet(MRBFSInterfaceDriver* mrbfsInterfaceDriver, const char* interfaceOptionKey, const char* defaultValue)
+{
+	int i;
+	(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] - [%d] node options, looking for [%s]", mrbfsInterfaceDriver->interfaceName, mrbfsInterfaceDriver->interfaceOptions, interfaceOptionKey);
+
+	for(i=0; i<mrbfsInterfaceDriver->interfaceOptions; i++)
+	{
+		(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Node [%s] - node option [%d], comparing key [%s] to [%s]", mrbfsInterfaceDriver->interfaceName, i, interfaceOptionKey, mrbfsInterfaceDriver->interfaceOptionList[i].key);
+		if (0 == strcmp(interfaceOptionKey, mrbfsInterfaceDriver->interfaceOptionList[i].key))
+			return(mrbfsInterfaceDriver->interfaceOptionList[i].value);
+	}
+	return(defaultValue);
+}
+
 void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 {
 	UINT8 buffer[256];
@@ -136,14 +152,28 @@ void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 	NodeLocalStorage* nodeLocalStorage = (NodeLocalStorage*)mrbfsInterfaceDriver->nodeLocalStorage;
 	struct termios options;
 	struct timeval timeout;
-	int processingPacket=0;
-	UINT8 resetSerial = 0;
+	time_t processingPacket=0;
+	uint8_t resetSerial = 0;
+	uint32_t timeoutSeconds = 5;
+	
 	int fd = -1, nbytes=0, i=0;	
 
 	(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface [%s] confirms startup", mrbfsInterfaceDriver->interfaceName);
 
    memset(buffer, 0, sizeof(buffer));
    bufptr = buffer;
+
+	timeoutSeconds = atoi(mrbfsInterfaceOptionGet(mrbfsInterfaceDriver, "timeout", "2"));
+
+	if (timeoutSeconds < 2 || timeoutSeconds >= 120)
+	{
+		(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_WARNING, "Interface [%s] - Timeout of %d not valid (range 2-120), setting to minimum of 2 seconds", mrbfsInterfaceDriver->interfaceName, timeoutSeconds);
+		timeoutSeconds = 2;
+	}
+	else
+	{
+		(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_WARNING, "Interface [%s] - Setting timeout to [%d] seconds", mrbfsInterfaceDriver->interfaceName, timeoutSeconds);	
+	}
 
 	fd = mrbfsCI2SerialOpen(mrbfsInterfaceDriver);
 
@@ -161,22 +191,24 @@ void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
       
       if (resetSerial)
       {
-	      mrbfsCI2SerialClose(mrbfsInterfaceDriver, fd);    
+			mrbfsCI2SerialClose(mrbfsInterfaceDriver, fd);
 	      
 	      // Nothing we can do until we get our port back
 			do
 			{
-   			memset(buffer, 0, sizeof(buffer));
-			   bufptr = buffer;
-		      usleep(100000);
-		      fd = mrbfsCI2SerialOpen(mrbfsInterfaceDriver);
+				usleep(100000);
+				fd = mrbfsCI2SerialOpen(mrbfsInterfaceDriver);
 			} while (0 == fd);
+
+			memset(buffer, 0, sizeof(buffer));
+			bufptr = buffer;
+			processingPacket = 0;
 			resetSerial = 0;
       }      
       
       while ((nbytes = read(fd, incomingByte, 1)) > 0)
       {
-//        (*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Interface [%s] got byte [0x%02X]", mrbfsInterfaceDriver->interfaceName, incomingByte[0]);
+        (*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_ANNOYING, "Interface [%s] got byte [0x%02X]", mrbfsInterfaceDriver->interfaceName, incomingByte[0]);
 
          switch(incomingByte[0])
          {
@@ -251,30 +283,83 @@ void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
                break;
 
             default:
-					processingPacket = 1;
+					processingPacket = time(NULL);
                *bufptr++ = incomingByte[0];
                if (bufptr >= buffer + sizeof(buffer))
                {
-                processingPacket = 0;
-                bufptr = buffer;
+						processingPacket = 0;
+						bufptr = buffer;
                }
                break;
          }
       }
-		if (!processingPacket && mrbusPacketQueueDepth(&nodeLocalStorage->txq) )
+
+		if (processingPacket && ((time(NULL) - processingPacket) > timeoutSeconds) )
+		{
+			// Timeout on read, do something
+			resetSerial = 1;
+			(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_WARNING, "Interface [%s] timed out receiving packet, resetting", mrbfsInterfaceDriver->interfaceName);
+			continue;
+		}
+
+
+		if ((0 == processingPacket) && mrbusPacketQueueDepth(&nodeLocalStorage->txq) )
 		{
 			MRBusPacket txPkt;
-			UINT8 txPktBuffer[32];
-			UINT8 txPktBufferLen=0;
+			uint8_t txPktBuffer[256];
+			uint32_t txPktBufferLen=0;
+			uint32_t i;
+			uint32_t bytesWritten = 0;
+
 			mrbusPacketQueuePop(&nodeLocalStorage->txq, &txPkt);
 			sprintf(txPktBuffer, ":%02X->%02X %02X", txPkt.pkt[MRBUS_PKT_SRC], txPkt.pkt[MRBUS_PKT_DEST], txPkt.pkt[MRBUS_PKT_TYPE]);
 			for (i=MRBUS_PKT_DATA; i<txPkt.pkt[MRBUS_PKT_LEN]; i++)
 				sprintf(txPktBuffer + strlen(txPktBuffer), " %02X", txPkt.pkt[i]);
 			sprintf(txPktBuffer + strlen(txPktBuffer), ";\x0D");
 			(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface driver [%s] transmitting %d bytes", mrbfsInterfaceDriver->interfaceName, strlen(txPktBuffer)); 
-			nbytes = write(fd, txPktBuffer, strlen(txPktBuffer));
-			if (nbytes < 0)
-				resetSerial = 1;			
+	
+			txPktBufferLen = strlen(txPktBuffer);
+			bytesWritten = 0;
+
+			processingPacket = time(NULL);
+
+			do
+			{
+				nbytes = write(fd, txPktBuffer + bytesWritten, txPktBufferLen - bytesWritten);
+				if (nbytes >= 0)
+				{
+					(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_ANNOYING, "Interface driver [%s] transmitting %d bytes of %d byte packet", mrbfsInterfaceDriver->interfaceName, bytesWritten, txPktBufferLen); 
+					bytesWritten += nbytes;
+				}
+				else if (-1 == nbytes && !(EAGAIN == errno || EWOULDBLOCK == errno))
+				{
+					(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_ERROR, "Interface driver [%s] got errno=%d on write of %d bytes", mrbfsInterfaceDriver->interfaceName, errno, txPktBufferLen); 
+					resetSerial = 1;
+				}
+				else if (-1 == nbytes && (EAGAIN == errno || EWOULDBLOCK == errno))
+				{
+					(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_ERROR, "Interface driver [%s] delaying transmission due blocking", mrbfsInterfaceDriver->interfaceName, errno, txPktBufferLen); 
+			      usleep(50);
+				}
+				else
+				{
+					// Do nothing, really, it's 
+					(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_ERROR, "Interface driver [%s] got retval=%d and errno=%d - no comprende!", mrbfsInterfaceDriver->interfaceName, nbytes, errno);
+				}
+			
+			} while (!resetSerial 
+				&& (bytesWritten < txPktBufferLen) 
+				&& ((time(NULL) - processingPacket) > timeoutSeconds));
+	
+			processingPacket = 0;
+	
+			if (bytesWritten < txPktBufferLen)
+			{
+				resetSerial = 1;
+				(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_ERROR, "Interface driver [%s] didn't transmit enough bytes (%d != %d), resetting serial", mrbfsInterfaceDriver->interfaceName, bytesWritten, txPktBufferLen);
+			}
+			else
+				(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_ANNOYING, "Interface driver [%s] actually transmitted %d bytes", mrbfsInterfaceDriver->interfaceName, bytesWritten);          
 		}
 
    }
