@@ -85,7 +85,8 @@ static int mrbfsCI2SerialOpen(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
    tcflush(fd, TCIFLUSH);
 	tcsetattr(fd, TCSAFLUSH, &options);
 
-	write(fd, "\x0A\x0D", strlen("\x0A\x0D"));
+	nbytes = write(fd, "\x0A\x0D", strlen("\x0A\x0D"));
+	nbytes = write(fd, "\x0A\x0D", strlen("\x0A\x0D"));
 
 	(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface [%s] - Serial startup complete", mrbfsInterfaceDriver->interfaceName);
 
