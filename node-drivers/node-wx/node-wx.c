@@ -262,24 +262,24 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 	
 	nodeLocalStorage->file_tempSensor = (*mrbfsNode->mrbfsFilesystemAddFile)("temperature", FNODE_RO_VALUE_STR, mrbfsNode->path);
 	nodeLocalStorage->file_tempSensor->value.valueStr = nodeLocalStorage->tempSensorValue;
-	nodeLocalStorage->file_tempSensor2 = (*mrbfsNode->mrbfsFilesystemAddFile)("temperature", FNODE_RO_VALUE_STR, mrbfsNode->path);
-	nodeLocalStorage->file_tempSensor2->value.valueStr = nodeLocalStorage->tempSensorValue;
+	nodeLocalStorage->file_tempSensor2 = (*mrbfsNode->mrbfsFilesystemAddFile)("temperature2", FNODE_RO_VALUE_STR, mrbfsNode->path);
+	nodeLocalStorage->file_tempSensor2->value.valueStr = nodeLocalStorage->tempSensorValue2;
 
 	nodeLocalStorage->file_relativeHumidity = (*mrbfsNode->mrbfsFilesystemAddFile)("relative_humidity", FNODE_RO_VALUE_STR, mrbfsNode->path);
 	nodeLocalStorage->file_relativeHumidity->value.valueStr = nodeLocalStorage->relativeHumidityValue;
-	nodeLocalStorage->file_relativeHumidity2 = (*mrbfsNode->mrbfsFilesystemAddFile)("relative_humidity", FNODE_RO_VALUE_STR, mrbfsNode->path);
-	nodeLocalStorage->file_relativeHumidity2->value.valueStr = nodeLocalStorage->relativeHumidityValue;
+	nodeLocalStorage->file_relativeHumidity2 = (*mrbfsNode->mrbfsFilesystemAddFile)("relative_humidity2", FNODE_RO_VALUE_STR, mrbfsNode->path);
+	nodeLocalStorage->file_relativeHumidity2->value.valueStr = nodeLocalStorage->relativeHumidityValue2;
 
 	nodeLocalStorage->file_pressureSensor = (*mrbfsNode->mrbfsFilesystemAddFile)("absolute_pressure", FNODE_RO_VALUE_STR, mrbfsNode->path);
 	nodeLocalStorage->file_pressureSensor->value.valueStr = nodeLocalStorage->pressureSensorValue;
-	nodeLocalStorage->file_pressureSensor2 = (*mrbfsNode->mrbfsFilesystemAddFile)("absolute_pressure", FNODE_RO_VALUE_STR, mrbfsNode->path);
-	nodeLocalStorage->file_pressureSensor2->value.valueStr = nodeLocalStorage->pressureSensorValue;
+	nodeLocalStorage->file_pressureSensor2 = (*mrbfsNode->mrbfsFilesystemAddFile)("absolute_pressure2", FNODE_RO_VALUE_STR, mrbfsNode->path);
+	nodeLocalStorage->file_pressureSensor2->value.valueStr = nodeLocalStorage->pressureSensorValue2;
 	if (-1 != nodeLocalStorage->altitude)
 	{
 		nodeLocalStorage->file_meanSeaLevelPressure = (*mrbfsNode->mrbfsFilesystemAddFile)("mean_sea_level_pressure", FNODE_RO_VALUE_STR, mrbfsNode->path);
 		nodeLocalStorage->file_meanSeaLevelPressure->value.valueStr = nodeLocalStorage->meanSeaLevelPressureValue;
-		nodeLocalStorage->file_meanSeaLevelPressure2 = (*mrbfsNode->mrbfsFilesystemAddFile)("mean_sea_level_pressure", FNODE_RO_VALUE_STR, mrbfsNode->path);
-		nodeLocalStorage->file_meanSeaLevelPressure2->value.valueStr = nodeLocalStorage->meanSeaLevelPressureValue;
+		nodeLocalStorage->file_meanSeaLevelPressure2 = (*mrbfsNode->mrbfsFilesystemAddFile)("mean_sea_level_pressure2", FNODE_RO_VALUE_STR, mrbfsNode->path);
+		nodeLocalStorage->file_meanSeaLevelPressure2->value.valueStr = nodeLocalStorage->meanSeaLevelPressureValue2;
 	}
 
 	nodeLocalStorage->file_busVoltage = (*mrbfsNode->mrbfsFilesystemAddFile)(nodeLocalStorage->isWireless?"battery_voltage":"mrbus_voltage", FNODE_RO_VALUE_STR, mrbfsNode->path);
