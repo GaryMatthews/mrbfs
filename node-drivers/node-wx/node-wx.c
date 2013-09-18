@@ -53,6 +53,7 @@ typedef struct
 	char* busVoltageValue;
 
 	MRBPressureUnits pressureUnits;
+	MRBPressureUnits pressureUnitsMSL;
 	MRBFSFileNode* file_pressureSensor;
 	char* pressureSensorValue;
 	MRBFSFileNode* file_meanSeaLevelPressure;
@@ -245,6 +246,7 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 
 	nodeLocalStorage->tempUnits = mrbfsNodeGetTemperatureUnits(mrbfsNode, "temperature_units");
 	nodeLocalStorage->pressureUnits = mrbfsNodeGetPressureUnits(mrbfsNode, "pressure_units");
+	nodeLocalStorage->pressureUnitsMSL = mrbfsNodeGetPressureUnits(mrbfsNode, "mean_sea_level_pressure_units");
 
 	nodeLocalStorage->altitude = atoi(mrbfsNodeOptionGet(mrbfsNode, "altitude_meters", "-1"));
 	
@@ -363,10 +365,10 @@ void populateMSLPFile(NodeLocalStorage* nodeLocalStorage, double pressure, doubl
 		mslp = pressure * 1.0/pow(altitude_factor, 5.257);
 
 		if (!nodeLocalStorage->suppressUnits)
-			sprintf(unitsStr, " %s\n", mrbfsGetPressureDisplayUnits(nodeLocalStorage->pressureUnits));
+			sprintf(unitsStr, " %s\n", mrbfsGetPressureDisplayUnits(nodeLocalStorage->pressureUnitsMSL));
 
 		snprintf(nodeLocalStorage->meanSeaLevelPressureValue, TEMPERATURE_VALUE_BUFFER_SZ-1, 
-			"%.*f%s", nodeLocalStorage->decimalPositions, mrbfsGetPressureFromHPaDouble(mslp, nodeLocalStorage->pressureUnits), unitsStr);
+			"%.*f%s", nodeLocalStorage->decimalPositions, mrbfsGetPressureFromHPaDouble(mslp, nodeLocalStorage->pressureUnitsMSL), unitsStr);
 		nodeLocalStorage->file_meanSeaLevelPressure->updateTime = currentTime;
 	}
 }
@@ -384,10 +386,10 @@ void populateMSLPFile2(NodeLocalStorage* nodeLocalStorage, double pressure, doub
 		mslp = pressure * 1.0/pow(altitude_factor, 5.257);
 
 		if (!nodeLocalStorage->suppressUnits)
-			sprintf(unitsStr, " %s\n", mrbfsGetPressureDisplayUnits(nodeLocalStorage->pressureUnits));
+			sprintf(unitsStr, " %s\n", mrbfsGetPressureDisplayUnits(nodeLocalStorage->pressureUnitsMSL));
 
 		snprintf(nodeLocalStorage->meanSeaLevelPressureValue2, TEMPERATURE_VALUE_BUFFER_SZ-1, 
-			"%.*f%s", nodeLocalStorage->decimalPositions, mrbfsGetPressureFromHPaDouble(mslp, nodeLocalStorage->pressureUnits), unitsStr);
+			"%.*f%s", nodeLocalStorage->decimalPositions, mrbfsGetPressureFromHPaDouble(mslp, nodeLocalStorage->pressureUnitsMSL), unitsStr);
 		nodeLocalStorage->file_meanSeaLevelPressure2->updateTime = currentTime;
 	}
 }
@@ -435,7 +437,7 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 			populateTempFile(nodeLocalStorage, mrbfsGetTempFrom16K(&rxPkt->pkt[8], nodeLocalStorage->tempUnits), currentTime);
 			populateTempFile2(nodeLocalStorage, mrbfsGetTempFrom16K(&rxPkt->pkt[14], nodeLocalStorage->tempUnits), currentTime);
 			populateHumidityFile(nodeLocalStorage, ((double)rxPkt->pkt[10])/2.0, currentTime);
-			populateHumidityFile2(nodeLocalStorage, ((double)rxPkt->pkt[10])/2.0, currentTime);
+			populateHumidityFile2(nodeLocalStorage, ((double)rxPkt->pkt[16])/2.0, currentTime);
 
 			populatePressureFile(nodeLocalStorage, mrbfsGetPressureFromHPa(&rxPkt->pkt[11], nodeLocalStorage->pressureUnits), currentTime);
 			populatePressureFile2(nodeLocalStorage, mrbfsGetPressureFromHPa(&rxPkt->pkt[17], nodeLocalStorage->pressureUnits), currentTime);
