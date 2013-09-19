@@ -265,6 +265,15 @@ void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 							memmove(nodeLocalStorage->pktLogStr + newLen, nodeLocalStorage->pktLogStr, strlen(nodeLocalStorage->pktLogStr));
 							memcpy(nodeLocalStorage->pktLogStr, newPacket, newLen);
 							nodeLocalStorage->file_pktLog->updateTime = currentTime;
+							
+/*
+                                                        //  MDP: Code to enable a very crude running packet log.
+                                                        //  It worked in a pinch - didn't promise it was any good.
+							FILE *fptr;
+							fptr = fopen("/home/house/mrbfs.pktlog", "a");
+							fputs(newPacket, fptr);
+							fclose(fptr);
+*/
 
 							nodeLocalStorage->file_pktCounter->updateTime = currentTime;
 							nodeLocalStorage->file_pktCounter->value.valueInt = ++nodeLocalStorage->pktsReceived;
