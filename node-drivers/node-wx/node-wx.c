@@ -52,6 +52,11 @@ typedef struct
 	MRBFSFileNode* file_busVoltage;
 	char* busVoltageValue;
 
+	MRBFSFileNode* file_tempSensor3;
+	char* tempSensorValue3;
+	MRBFSFileNode* file_tempSensor4;
+	char* tempSensorValue4;
+
 	MRBPressureUnits pressureUnits;
 	MRBPressureUnits pressureUnitsMSL;
 	MRBFSFileNode* file_pressureSensor;
@@ -179,6 +184,8 @@ void nodeResetFilesNoData(MRBFSBusNode* mrbfsNode)
 	NodeLocalStorage* nodeLocalStorage = mrbfsNode->nodeLocalStorage;
 	strcpy(nodeLocalStorage->tempSensorValue, "No Data\n");
 	strcpy(nodeLocalStorage->tempSensorValue2, "No Data\n");
+	strcpy(nodeLocalStorage->tempSensorValue3, "No Data\n");
+	strcpy(nodeLocalStorage->tempSensorValue4, "No Data\n");
 	strcpy(nodeLocalStorage->relativeHumidityValue, "No Data\n");
 	strcpy(nodeLocalStorage->relativeHumidityValue2, "No Data\n");
 	strcpy(nodeLocalStorage->pressureSensorValue, "No Data\n");	
@@ -254,6 +261,8 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 	// Allocate all storage, even if not used
 	nodeLocalStorage->tempSensorValue = calloc(1, TEMPERATURE_VALUE_BUFFER_SZ);	
 	nodeLocalStorage->tempSensorValue2 = calloc(1, TEMPERATURE_VALUE_BUFFER_SZ);	
+	nodeLocalStorage->tempSensorValue3 = calloc(1, TEMPERATURE_VALUE_BUFFER_SZ);	
+	nodeLocalStorage->tempSensorValue4 = calloc(1, TEMPERATURE_VALUE_BUFFER_SZ);	
 	nodeLocalStorage->relativeHumidityValue = calloc(1, TEMPERATURE_VALUE_BUFFER_SZ);
 	nodeLocalStorage->relativeHumidityValue2 = calloc(1, TEMPERATURE_VALUE_BUFFER_SZ);
 	nodeLocalStorage->pressureSensorValue = calloc(1, TEMPERATURE_VALUE_BUFFER_SZ);	
@@ -266,6 +275,10 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 	nodeLocalStorage->file_tempSensor->value.valueStr = nodeLocalStorage->tempSensorValue;
 	nodeLocalStorage->file_tempSensor2 = (*mrbfsNode->mrbfsFilesystemAddFile)("temperature2", FNODE_RO_VALUE_STR, mrbfsNode->path);
 	nodeLocalStorage->file_tempSensor2->value.valueStr = nodeLocalStorage->tempSensorValue2;
+	nodeLocalStorage->file_tempSensor3 = (*mrbfsNode->mrbfsFilesystemAddFile)("temperature3", FNODE_RO_VALUE_STR, mrbfsNode->path);
+	nodeLocalStorage->file_tempSensor3->value.valueStr = nodeLocalStorage->tempSensorValue3;
+	nodeLocalStorage->file_tempSensor4 = (*mrbfsNode->mrbfsFilesystemAddFile)("temperature4", FNODE_RO_VALUE_STR, mrbfsNode->path);
+	nodeLocalStorage->file_tempSensor4->value.valueStr = nodeLocalStorage->tempSensorValue4;
 
 	nodeLocalStorage->file_relativeHumidity = (*mrbfsNode->mrbfsFilesystemAddFile)("relative_humidity", FNODE_RO_VALUE_STR, mrbfsNode->path);
 	nodeLocalStorage->file_relativeHumidity->value.valueStr = nodeLocalStorage->relativeHumidityValue;
@@ -327,6 +340,26 @@ void populateTempFile2(NodeLocalStorage* nodeLocalStorage, double temperature, t
 	snprintf(nodeLocalStorage->tempSensorValue2, TEMPERATURE_VALUE_BUFFER_SZ-1, 
 		"%.*f%s", nodeLocalStorage->decimalPositions, temperature, unitsStr);
 	nodeLocalStorage->file_tempSensor2->updateTime = currentTime;
+}
+
+void populateTempFile3(NodeLocalStorage* nodeLocalStorage, double temperature, time_t currentTime)
+{
+	char unitsStr[16] = "";
+	if (!nodeLocalStorage->suppressUnits)
+		sprintf(unitsStr, " %s\n", mrbfsGetTemperatureDisplayUnits(nodeLocalStorage->tempUnits));
+	snprintf(nodeLocalStorage->tempSensorValue3, TEMPERATURE_VALUE_BUFFER_SZ-1, 
+		"%.*f%s", nodeLocalStorage->decimalPositions, temperature, unitsStr);
+	nodeLocalStorage->file_tempSensor3->updateTime = currentTime;
+}
+
+void populateTempFile4(NodeLocalStorage* nodeLocalStorage, double temperature, time_t currentTime)
+{
+	char unitsStr[16] = "";
+	if (!nodeLocalStorage->suppressUnits)
+		sprintf(unitsStr, " %s\n", mrbfsGetTemperatureDisplayUnits(nodeLocalStorage->tempUnits));
+	snprintf(nodeLocalStorage->tempSensorValue4, TEMPERATURE_VALUE_BUFFER_SZ-1, 
+		"%.*f%s", nodeLocalStorage->decimalPositions, temperature, unitsStr);
+	nodeLocalStorage->file_tempSensor4->updateTime = currentTime;
 }
 
 void populateHumidityFile(NodeLocalStorage* nodeLocalStorage, double humidity, time_t currentTime)
@@ -432,23 +465,35 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 	{
 		case 'S':
 		{
-			nodeLocalStorage->lastUpdated = currentTime;
-
-			populateTempFile(nodeLocalStorage, mrbfsGetTempFrom16K(&rxPkt->pkt[8], nodeLocalStorage->tempUnits), currentTime);
-			populateTempFile2(nodeLocalStorage, mrbfsGetTempFrom16K(&rxPkt->pkt[14], nodeLocalStorage->tempUnits), currentTime);
-			populateHumidityFile(nodeLocalStorage, ((double)rxPkt->pkt[10])/2.0, currentTime);
-			populateHumidityFile2(nodeLocalStorage, ((double)rxPkt->pkt[16])/2.0, currentTime);
-
-			populatePressureFile(nodeLocalStorage, mrbfsGetPressureFromHPa(&rxPkt->pkt[11], nodeLocalStorage->pressureUnits), currentTime);
-			populatePressureFile2(nodeLocalStorage, mrbfsGetPressureFromHPa(&rxPkt->pkt[17], nodeLocalStorage->pressureUnits), currentTime);
-			if (-1 != nodeLocalStorage->altitude)
+			switch(rxPkt->pkt[MRBUS_PKT_TYPE+1])
 			{
-				populateMSLPFile(nodeLocalStorage, mrbfsGetPressureFromHPa(&rxPkt->pkt[11], MRB_PRESSURE_HPA), mrbfsGetTempFrom16K(&rxPkt->pkt[8], MRB_TEMPERATURE_UNITS_K), currentTime);
-				populateMSLPFile2(nodeLocalStorage, mrbfsGetPressureFromHPa(&rxPkt->pkt[17], MRB_PRESSURE_HPA), mrbfsGetTempFrom16K(&rxPkt->pkt[14], MRB_TEMPERATURE_UNITS_K), currentTime);
-			}
+				case 'W':
+				{
+					nodeLocalStorage->lastUpdated = currentTime;
 
-			populateVoltageFile(nodeLocalStorage, ((double)rxPkt->pkt[19])/10.0, currentTime);
-	
+					populateTempFile(nodeLocalStorage, mrbfsGetTempFrom16K(&rxPkt->pkt[8], nodeLocalStorage->tempUnits), currentTime);
+					populateTempFile2(nodeLocalStorage, mrbfsGetTempFrom16K(&rxPkt->pkt[14], nodeLocalStorage->tempUnits), currentTime);
+					populateHumidityFile(nodeLocalStorage, ((double)rxPkt->pkt[10])/2.0, currentTime);
+					populateHumidityFile2(nodeLocalStorage, ((double)rxPkt->pkt[16])/2.0, currentTime);
+
+					populateVoltageFile(nodeLocalStorage, ((double)rxPkt->pkt[19])/10.0, currentTime);
+				}
+				case 'X':
+				{
+					nodeLocalStorage->lastUpdated = currentTime;
+
+					populateTempFile3(nodeLocalStorage, mrbfsGetTempFrom16K(&rxPkt->pkt[8], nodeLocalStorage->tempUnits), currentTime);
+					populateTempFile4(nodeLocalStorage, mrbfsGetTempFrom16K(&rxPkt->pkt[12], nodeLocalStorage->tempUnits), currentTime);
+
+					populatePressureFile(nodeLocalStorage, mrbfsGetPressureFromHPa(&rxPkt->pkt[10], nodeLocalStorage->pressureUnits), currentTime);
+					populatePressureFile2(nodeLocalStorage, mrbfsGetPressureFromHPa(&rxPkt->pkt[14], nodeLocalStorage->pressureUnits), currentTime);
+					if (-1 != nodeLocalStorage->altitude)
+					{
+						populateMSLPFile(nodeLocalStorage, mrbfsGetPressureFromHPa(&rxPkt->pkt[10], MRB_PRESSURE_HPA), mrbfsGetTempFrom16K(&rxPkt->pkt[8], MRB_TEMPERATURE_UNITS_K), currentTime);
+						populateMSLPFile2(nodeLocalStorage, mrbfsGetPressureFromHPa(&rxPkt->pkt[14], MRB_PRESSURE_HPA), mrbfsGetTempFrom16K(&rxPkt->pkt[12], MRB_TEMPERATURE_UNITS_K), currentTime);
+					}
+				}
+			}
 		}
 		break;			
 	}
