@@ -25,6 +25,7 @@ build_drivers:
 	make -C node-drivers/node-h2o
 	make -C node-drivers/node-rts	
 	make -C node-drivers/node-th
+	make -C node-drivers/node-wx
 	make -C node-drivers/node-ap
 	make -C node-drivers/node-acsw
 	make -C node-drivers/node-clockdriver
@@ -41,6 +42,7 @@ clean:
 	make -C node-drivers/node-h2o clean
 	make -C node-drivers/node-rts clean
 	make -C node-drivers/node-th clean
+	make -C node-drivers/node-wx clean
 	make -C node-drivers/node-ap clean
 	make -C node-drivers/node-acsw clean
 	make -C node-drivers/node-clockdriver clean
