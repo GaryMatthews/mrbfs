@@ -465,6 +465,7 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 	{
 		case 'S':
 		{
+/*
 			FILE *fptr;
 			char timeString[64];
 			char newPacket[100];
@@ -482,12 +483,12 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 			*(newPacket + 20 + b*3-1) = '\n';
 			*(newPacket + 20 + b*3) = 0;
 			fprintf(fptr, "%s", newPacket);
-
+*/
 			switch(rxPkt->pkt[MRBUS_PKT_TYPE+1])
 			{
 				case 'W':
 				{
-					fprintf(fptr, "--> W\n");
+//					fprintf(fptr, "--> W\n");
 					nodeLocalStorage->lastUpdated = currentTime;
 
 					populateTempFile(nodeLocalStorage, mrbfsGetTempFrom16K(&rxPkt->pkt[8], nodeLocalStorage->tempUnits), currentTime);
@@ -500,7 +501,7 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 				}
 				case 'X':
 				{
-					fprintf(fptr, "--> X\n");
+//					fprintf(fptr, "--> X\n");
 					nodeLocalStorage->lastUpdated = currentTime;
 
 					populateTempFile3(nodeLocalStorage, mrbfsGetTempFrom16K(&rxPkt->pkt[8], nodeLocalStorage->tempUnits), currentTime);
@@ -517,7 +518,7 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 				}
 			}
 
-		fclose(fptr);
+//		fclose(fptr);
 
 		}
 		break;			
