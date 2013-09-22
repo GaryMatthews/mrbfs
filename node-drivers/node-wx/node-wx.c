@@ -465,10 +465,29 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 	{
 		case 'S':
 		{
+			FILE *fptr;
+			char timeString[64];
+			char newPacket[100];
+			int b;
+			size_t timeSize=0;
+			struct tm pktTimeTM;
+			fptr = fopen("/home/house/mrbfs.wx.pktlog", "a");
+
+			localtime_r(&currentTime, &pktTimeTM);
+			memset(newPacket, 0, sizeof(newPacket));
+			strftime(newPacket, sizeof(newPacket), "[%Y%m%d %H%M%S] R ", &pktTimeTM);
+
+			for(b=0; b<rxPkt->len; b++)
+				sprintf(newPacket + 20 + b*3, "%02X ", rxPkt->pkt[b]);
+			*(newPacket + 20 + b*3-1) = '\n';
+			*(newPacket + 20 + b*3) = 0;
+			fprintf(fptr, "%s", newPacket);
+
 			switch(rxPkt->pkt[MRBUS_PKT_TYPE+1])
 			{
 				case 'W':
 				{
+					fprintf(fptr, "--> W\n");
 					nodeLocalStorage->lastUpdated = currentTime;
 
 					populateTempFile(nodeLocalStorage, mrbfsGetTempFrom16K(&rxPkt->pkt[8], nodeLocalStorage->tempUnits), currentTime);
@@ -477,9 +496,11 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 					populateHumidityFile2(nodeLocalStorage, ((double)rxPkt->pkt[16])/2.0, currentTime);
 
 					populateVoltageFile(nodeLocalStorage, ((double)rxPkt->pkt[19])/10.0, currentTime);
+					break;
 				}
 				case 'X':
 				{
+					fprintf(fptr, "--> X\n");
 					nodeLocalStorage->lastUpdated = currentTime;
 
 					populateTempFile3(nodeLocalStorage, mrbfsGetTempFrom16K(&rxPkt->pkt[8], nodeLocalStorage->tempUnits), currentTime);
@@ -492,8 +513,12 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 						populateMSLPFile(nodeLocalStorage, mrbfsGetPressureFromHPa(&rxPkt->pkt[10], MRB_PRESSURE_HPA), mrbfsGetTempFrom16K(&rxPkt->pkt[8], MRB_TEMPERATURE_UNITS_K), currentTime);
 						populateMSLPFile2(nodeLocalStorage, mrbfsGetPressureFromHPa(&rxPkt->pkt[14], MRB_PRESSURE_HPA), mrbfsGetTempFrom16K(&rxPkt->pkt[12], MRB_TEMPERATURE_UNITS_K), currentTime);
 					}
+					break;
 				}
 			}
+
+		fclose(fptr);
+
 		}
 		break;			
 	}
