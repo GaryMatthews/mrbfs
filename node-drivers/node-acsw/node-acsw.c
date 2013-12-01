@@ -536,8 +536,8 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 		char inputKeyname[32];
 		const char* inputFilename = inputDefaultFilename;
 
-		sprintf(inputDefaultFilename, "in%d", i+1);
-		sprintf(inputKeyname, "in%d_name", i+1);
+		sprintf(inputDefaultFilename, "in%d", i);
+		sprintf(inputKeyname, "in%d_name", i);
 
 		inputFilename = mrbfsNodeOptionGet(mrbfsNode, inputKeyname, inputDefaultFilename);
 		nodeLocalStorage->file_input[i] = (*mrbfsNode->mrbfsFilesystemAddFile)(inputFilename, FNODE_RO_VALUE_STR, mrbfsNode->path);
@@ -565,15 +565,15 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 		{
 			case 0:
 			case 1:
-				sprintf(outputDefaultFilename, "ac%d", i+1);
-				sprintf(outputKeyname, "ac%d_name", i+1);
+				sprintf(outputDefaultFilename, "sw%d", i);
+				sprintf(outputKeyname, "sw%d_name", i);
 				break;	
 			
 			case 2:
 			case 3:
 			default:
-				sprintf(outputDefaultFilename, "out%d", i-1);
-				sprintf(outputKeyname, "out%d_name", i-1);
+				sprintf(outputDefaultFilename, "out%d", i);
+				sprintf(outputKeyname, "out%d_name", i);
 				break;	
 		}
 
