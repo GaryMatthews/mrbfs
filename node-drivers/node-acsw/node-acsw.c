@@ -24,6 +24,7 @@ LICENSE:
 
 #include <dlfcn.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
@@ -797,18 +798,18 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 				}
 
 				{
-					unsigned int counterAValue=(((unsigned int)rxPkt->pkt[10])<<24) + (((unsigned int)rxPkt->pkt[11])<<16) + (((unsigned int)rxPkt->pkt[12])<<8) + (((unsigned int)rxPkt->pkt[13]));
-					unsigned int counterBValue=(((unsigned int)rxPkt->pkt[14])<<24) + (((unsigned int)rxPkt->pkt[15])<<16) + (((unsigned int)rxPkt->pkt[16])<<8) + (((unsigned int)rxPkt->pkt[17]));
+					uint32_t counterAValue=(((uint32_t)rxPkt->pkt[10])<<24) + (((uint32_t)rxPkt->pkt[11])<<16) + (((uint32_t)rxPkt->pkt[12])<<8) + (((uint32_t)rxPkt->pkt[13]));
+					uint32_t counterBValue=(((uint32_t)rxPkt->pkt[14])<<24) + (((uint32_t)rxPkt->pkt[15])<<16) + (((uint32_t)rxPkt->pkt[16])<<8) + (((uint32_t)rxPkt->pkt[17]));
 					nodeLocalStorage->file_counterA->updateTime = nodeLocalStorage->file_counterB->updateTime = currentTime;
 					if (rxPkt->pkt[6] & 0x20)
-						sprintf(nodeLocalStorage->counterAValueStr, "%d OVERFLOW\n", counterAValue);
+						sprintf(nodeLocalStorage->counterAValueStr, "%u OVERFLOW\n", counterAValue);
 					else
-						sprintf(nodeLocalStorage->counterAValueStr, "%d\n", counterAValue);
+						sprintf(nodeLocalStorage->counterAValueStr, "%u\n", counterAValue);
 
 					if (rxPkt->pkt[6] & 0x80)
-						sprintf(nodeLocalStorage->counterBValueStr, "%d OVERFLOW\n", counterBValue);
+						sprintf(nodeLocalStorage->counterBValueStr, "%u OVERFLOW\n", counterBValue);
 					else
-						sprintf(nodeLocalStorage->counterBValueStr, "%d\n", counterBValue);
+						sprintf(nodeLocalStorage->counterBValueStr, "%u\n", counterBValue);
 				}
 
 				nodeLocalStorage->lastUpdated = currentTime;			
