@@ -28,6 +28,7 @@ build_drivers:
 	make -C node-drivers/node-wx
 	make -C node-drivers/node-ap
 	make -C node-drivers/node-acsw
+	make -C node-drivers/node-dccm
 	make -C node-drivers/node-clockdriver
 
 clean:
@@ -45,5 +46,6 @@ clean:
 	make -C node-drivers/node-wx clean
 	make -C node-drivers/node-ap clean
 	make -C node-drivers/node-acsw clean
+	make -C node-drivers/node-dccm clean
 	make -C node-drivers/node-clockdriver clean
 	
