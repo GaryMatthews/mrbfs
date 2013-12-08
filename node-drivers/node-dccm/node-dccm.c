@@ -424,7 +424,6 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 	//  It's a readback file.
 	nodeLocalStorage->file_eepromNodeAddr = mrbfsNodeCreateFile_RW_READBACK(mrbfsNode, "eepromNodeAddr", mrbfsFileNodeRead, mrbfsFileNodeWrite);
 
-
 	nodeLocalStorage->file_busVoltage = mrbfsNodeCreateFile_RO_STR(mrbfsNode, "mrbusVoltage", &nodeLocalStorage->busVoltageValue, OUTPUT_VALUE_BUFFER_SZ);
 
 	// Return 0 to indicate success
@@ -592,9 +591,13 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 				nodeLocalStorage->file_dccCurrent[i]->updateTime = currentTime;
 			}
 
-			nodeLocalStorage->lastUpdated = currentTime;			
-			snprintf(nodeLocalStorage->busVoltageValue, OUTPUT_VALUE_BUFFER_SZ-1, "%.*f%s", nodeLocalStorage->decimalPositions, ((double)rxPkt->pkt[19])/10.0, nodeLocalStorage->suppressUnits?"":" V\n" );
-			nodeLocalStorage->file_busVoltage->updateTime = currentTime;
+			if (rxPkt->pkt[MRBUS_PKT_LEN] >= 20)
+			{
+				nodeLocalStorage->lastUpdated = currentTime;			
+				snprintf(nodeLocalStorage->busVoltageValue, OUTPUT_VALUE_BUFFER_SZ-1, "%.*f%s", nodeLocalStorage->decimalPositions, ((double)rxPkt->pkt[19])/10.0, nodeLocalStorage->suppressUnits?"":" V\n" );
+				nodeLocalStorage->file_busVoltage->updateTime = currentTime;
+			}
+			
 			}
 			break;			
 	}
