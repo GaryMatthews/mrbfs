@@ -86,6 +86,9 @@ typedef struct
 	MRBFSFileNode* file_timelockTimer;
 	MRBFSFileNode* file_debounceTimer;
 	MRBFSFileNode* file_signalAspect[8];
+	MRBFSFileNode* file_timeoutTimerStatus[4];
+	MRBFSFileNode* file_lockoutTimerStatus[4];
+
 	char* signalAspectValue[8];
 	MRBFSFileNode* file_busVoltage;
 	char* busVoltageValue;	
@@ -275,6 +278,16 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 	nodeLocalStorage->file_simEnable[1] = mrbfsNodeCreateFile_RO_INT(mrbfsNode, "simEnable1");
 	nodeLocalStorage->file_simEnable[2] = mrbfsNodeCreateFile_RO_INT(mrbfsNode, "simEnable2");
 	nodeLocalStorage->file_simEnable[3] = mrbfsNodeCreateFile_RO_INT(mrbfsNode, "simEnable3");
+
+	nodeLocalStorage->file_timeoutTimerStatus[0] = mrbfsNodeCreateFile_RO_INT(mrbfsNode, "timeoutStatus0");
+	nodeLocalStorage->file_timeoutTimerStatus[1] = mrbfsNodeCreateFile_RO_INT(mrbfsNode, "timeoutStatus1");
+	nodeLocalStorage->file_timeoutTimerStatus[2] = mrbfsNodeCreateFile_RO_INT(mrbfsNode, "timeoutStatus2");
+	nodeLocalStorage->file_timeoutTimerStatus[3] = mrbfsNodeCreateFile_RO_INT(mrbfsNode, "timeoutStatus3");
+
+	nodeLocalStorage->file_lockoutTimerStatus[0] = mrbfsNodeCreateFile_RO_INT(mrbfsNode, "lockoutStatus0");
+	nodeLocalStorage->file_lockoutTimerStatus[1] = mrbfsNodeCreateFile_RO_INT(mrbfsNode, "lockoutStatus1");
+	nodeLocalStorage->file_lockoutTimerStatus[2] = mrbfsNodeCreateFile_RO_INT(mrbfsNode, "lockoutStatus2");
+	nodeLocalStorage->file_lockoutTimerStatus[3] = mrbfsNodeCreateFile_RO_INT(mrbfsNode, "lockoutStatus3");
 
 	nodeLocalStorage->file_timelockTimer = mrbfsNodeCreateFile_RO_INT(mrbfsNode, "timelockTimer");
 	nodeLocalStorage->file_debounceTimer = mrbfsNodeCreateFile_RO_INT(mrbfsNode, "debounceTimer");
@@ -610,7 +623,7 @@ Purpose:  The mrbfsNodeRxPacket() function is called by
 int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 {
 	NodeLocalStorage* nodeLocalStorage = (NodeLocalStorage*)mrbfsNode->nodeLocalStorage;
-
+	int i;
 	// Store off the current local time that the packet was processed.  System time calls
 	// tend to be kind of heavy, so let's not do this more than needed.
 	time_t currentTime = time(NULL);
@@ -624,10 +637,80 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 	{
 		case 'S':
 			{
-				// FIXME: Do Stuff
-				// What stuff you're doing is going to depend upon what sort of node you're
-				// writing for.  However, most emit a 'S' (status) packet that will be used
-				// to feed statuses reflected in various files
+				for (i=0; i<7; i++)
+				{
+					nodeLocalStorage->file_occ[i]->value.valueInt = (rxPkt->pkt[6] & (1<<i))?1:0;	
+					nodeLocalStorage->file_occ[i]->updateTime = currentTime;
+				}
+
+				for (i=0; i<6; i++)
+				{
+					strcpy(nodeLocalStorage->file_switchPos[i]->value.valueStr, (rxPkt->pkt[7] & (1<<i))?"normal":"diverging");;	
+					nodeLocalStorage->file_switchPos[i]->updateTime = currentTime;
+				}
+				
+				for (i=6; i<8; i++)
+				{
+					nodeLocalStorage->file_soundOut[i]->value.valueInt = (rxPkt->pkt[7] & (1<<i))?1:0;	
+					nodeLocalStorage->file_soundOut[i]->updateTime = currentTime;					
+				}
+
+				for (i=0; i<4; i++)
+				{
+					nodeLocalStorage->file_simEnable[i]->value.valueInt = (rxPkt->pkt[11] & (1<<i))?1:0;	
+					nodeLocalStorage->file_simEnable[i]->updateTime = currentTime;
+					
+					nodeLocalStorage->file_lockoutTimerStatus[i]->value.valueInt = (rxPkt->pkt[16] & (1<<i))?1:0;
+					nodeLocalStorage->file_lockoutTimerStatus[i]->updateTime = currentTime;
+					
+					nodeLocalStorage->file_timeoutTimerStatus[i]->value.valueInt = (rxPkt->pkt[17] & (1<<i))?1:0;
+					nodeLocalStorage->file_timeoutTimerStatus[i]->updateTime = currentTime;
+				}
+
+				for(i=0; i<8; i++)
+				{
+					uint8_t aspectWires = 0;
+					
+					aspectWires |= rxPkt->pkt[8 + ((i*3)/8)] & (1<<((i*3)%8))?1:0;
+					aspectWires |= rxPkt->pkt[8 + ((i*3 + 1)/8)] & (1<<((i*3 + 1)%8))?1:0;
+					aspectWires |= rxPkt->pkt[8 + ((i*3 + 2)/8)] & (1<<((i*3 + 2)%8))?1:0;
+					
+					switch(aspectWires)
+					{
+						case 0x04:
+							strcpy(nodeLocalStorage->file_signalAspect[i]->value.valueStr, "Red\n");
+							break;
+						case 0x02:
+							strcpy(nodeLocalStorage->file_signalAspect[i]->value.valueStr, "Yellow\n");
+							break;
+						case 0x01:
+							strcpy(nodeLocalStorage->file_signalAspect[i]->value.valueStr, "Green\n");
+							break;
+						default:
+							sprintf(nodeLocalStorage->file_signalAspect[i]->value.valueStr, "Unknown [0x%02X]\n", aspectWires);
+							break;
+					}
+					nodeLocalStorage->file_signalAspect[i]->updateTime = currentTime;
+				
+				}
+
+				nodeLocalStorage->file_state[0]->value.valueInt = 0x0F & (rxPkt->pkt[12]>>4);
+				nodeLocalStorage->file_state[1]->value.valueInt = 0x0F & (rxPkt->pkt[12]);
+				nodeLocalStorage->file_state[2]->value.valueInt = 0x0F & (rxPkt->pkt[13]>>4);
+				nodeLocalStorage->file_state[3]->value.valueInt = 0x0F & (rxPkt->pkt[13]);								
+
+				for(i=0; i<4; i++)
+					nodeLocalStorage->file_state[i]->updateTime = currentTime;
+
+				nodeLocalStorage->file_timelockTimer->value.valueInt = rxPkt->pkt[14];
+				nodeLocalStorage->file_timelockTimer->updateTime = currentTime;
+				nodeLocalStorage->file_debounceTimer->value.valueInt = rxPkt->pkt[15];
+				nodeLocalStorage->file_debounceTimer->updateTime = currentTime;
+				
+				snprintf(nodeLocalStorage->busVoltageValue, OUTPUT_VALUE_BUFFER_SZ-1, "%.*f%s", nodeLocalStorage->decimalPositions, ((double)rxPkt->pkt[19])/10.0, nodeLocalStorage->suppressUnits?"":" V\n" );
+				nodeLocalStorage->file_busVoltage->updateTime = currentTime;
+
+				nodeLocalStorage->lastUpdated = currentTime;			
 			}
 			break;			
 	}
