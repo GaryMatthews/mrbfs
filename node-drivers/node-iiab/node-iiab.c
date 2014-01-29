@@ -672,8 +672,8 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 					uint8_t aspectWires = 0;
 					
 					aspectWires |= rxPkt->pkt[8 + ((i*3)/8)] & (1<<((i*3)%8))?1:0;
-					aspectWires |= rxPkt->pkt[8 + ((i*3 + 1)/8)] & (1<<((i*3 + 1)%8))?1:0;
-					aspectWires |= rxPkt->pkt[8 + ((i*3 + 2)/8)] & (1<<((i*3 + 2)%8))?1:0;
+					aspectWires |= rxPkt->pkt[8 + ((i*3 + 1)/8)] & (1<<((i*3 + 1)%8))?2:0;
+					aspectWires |= rxPkt->pkt[8 + ((i*3 + 2)/8)] & (1<<((i*3 + 2)%8))?4:0;
 					
 					switch(aspectWires)
 					{
