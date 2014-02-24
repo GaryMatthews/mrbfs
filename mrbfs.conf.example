@@ -10,8 +10,8 @@ module-directory = "/home/ndholmes/data/mrbus/mrbfs/modules"
 #	driver = "interface-ci2.so"
 #	port = "/dev/ttyUSB0"
 #	interface-address = "0xFE"
-#       Option rtscts enables or disables hardware flow control through the RTS/CTS lines
-#       rtscts = "on"    
+#       Option rtscts enables or disables hardware flow control through the RTS/CTS lines, default is on
+#       option rtscts { value = "on" }
 #}
 
 #interface xbee-explorer
