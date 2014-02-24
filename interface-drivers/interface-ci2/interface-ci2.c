@@ -18,6 +18,8 @@
 // ~85 bytes per packet, and hold 512
 #define RX_PKT_BUFFER_SZ  (83 * 512)  
 
+const char* mrbfsInterfaceOptionGet(MRBFSInterfaceDriver* mrbfsInterfaceDriver, const char* interfaceOptionKey, const char* defaultValue);
+
 typedef struct
 {
 	UINT32 pktsReceived;
@@ -26,9 +28,6 @@ typedef struct
 	char pktLogStr[RX_PKT_BUFFER_SZ];
 	MRBusPacketQueue txq;
 } NodeLocalStorage;
-
-
-
 
 int mrbfsInterfaceDriverVersionCheck(int ifaceVersion)
 {
@@ -54,7 +53,8 @@ static int mrbfsCI2SerialOpen(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 	int  nbytes;       // Number of bytes read 
 	struct timeval timeout;
 	char* device = mrbfsInterfaceDriver->port;
-
+	const char* hwflowStr = "no";
+	
 	(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface [%s] - Starting serial port setup on [%s]", mrbfsInterfaceDriver->interfaceName, device);
 
 	fd = open(device, O_RDWR | O_NOCTTY | O_NDELAY); 
@@ -69,15 +69,23 @@ static int mrbfsCI2SerialOpen(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 
 	(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_DEBUG, "Interface [%s] - Serial port [%s] opened, not yet configured", mrbfsInterfaceDriver->interfaceName, device);
 
+	hwflowStr = mrbfsInterfaceOptionGet(mrbfsInterfaceDriver, "hw-flowcontrol", "on");
+
 	cfsetispeed(&options, B115200);
 	cfsetospeed(&options, B115200);
 
    options.c_cflag &= ~CSIZE; // Mask the character size bits 
    options.c_cflag |= CS8;    // Select 8 data bits 
 
-	options.c_cflag &= ~CRTSCTS;
+	if (0 == strcmp(hwflowStr, "on"))
+		options.c_cflag |= CRTSCTS;
+	else
+		options.c_cflag &= ~CRTSCTS;		
+
 	options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
+
 	options.c_iflag &= ~(IXON | IXOFF | IXANY | ICRNL);
+
 	options.c_oflag &= ~OPOST;
 	options.c_cc[VTIME] = 0;
    options.c_cc[VMIN]   = 1;   // blocking read until 5 chars received
@@ -156,7 +164,6 @@ void mrbfsInterfaceDriverRun(MRBFSInterfaceDriver* mrbfsInterfaceDriver)
 	time_t processingPacket=0;
 	uint8_t resetSerial = 0;
 	uint32_t timeoutSeconds = 5;
-	
 	int fd = -1, nbytes=0, i=0;	
 
 	(*mrbfsInterfaceDriver->mrbfsLogMessage)(MRBFS_LOG_INFO, "Interface [%s] confirms startup", mrbfsInterfaceDriver->interfaceName);
