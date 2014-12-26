@@ -253,12 +253,12 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 		char signalAspectKeyname[32];
 		const char* signalAspectFilename = signalAspectDefaultFilename;
 
-		sprintf(signalAspectKeyname, "signalhead_%d_name", i+1);
+		sprintf(signalAspectKeyname, "signalhead_%d_name", i);
 		switch(i)
 		{
 			// FIXME:  Fill signal head default names in here
 			default:
-				sprintf(signalAspectDefaultFilename, "signalhead_%d", i+1);
+				sprintf(signalAspectDefaultFilename, "signalhead_%d", i);
 				break;
 		}
 
@@ -643,9 +643,9 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 					nodeLocalStorage->file_occ[i]->updateTime = currentTime;
 				}
 
-				for (i=0; i<6; i++)
+				for (i=0; i<4; i++)
 				{
-					strcpy(nodeLocalStorage->file_switchPos[i]->value.valueStr, (rxPkt->pkt[7] & (1<<i))?"normal":"diverging");;	
+					strcpy(nodeLocalStorage->file_switchPos[i]->value.valueStr, (rxPkt->pkt[7] & (1<<i))?"diverging":"normal");;	
 					nodeLocalStorage->file_switchPos[i]->updateTime = currentTime;
 				}
 				
@@ -671,9 +671,9 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 				{
 					uint8_t aspectWires = 0;
 					
-					aspectWires |= rxPkt->pkt[8 + ((i*3)/8)] & (1<<((i*3)%8))?1:0;
-					aspectWires |= rxPkt->pkt[8 + ((i*3 + 1)/8)] & (1<<((i*3 + 1)%8))?2:0;
-					aspectWires |= rxPkt->pkt[8 + ((i*3 + 2)/8)] & (1<<((i*3 + 2)%8))?4:0;
+					aspectWires |= rxPkt->pkt[10 - ((i*3)/8)] & (1<<((i*3)%8))?1:0;
+					aspectWires |= rxPkt->pkt[10 - ((i*3 + 1)/8)] & (1<<((i*3 + 1)%8))?2:0;
+					aspectWires |= rxPkt->pkt[10 - ((i*3 + 2)/8)] & (1<<((i*3 + 2)%8))?4:0;
 					
 					switch(aspectWires)
 					{

@@ -2,7 +2,7 @@ LD=ar
 LDFLAGS=r
 CC=gcc
 LDFLAGS=-lfuse -ldl
-CFLAGS=-I./include/ -I/usr/include/fuse -I./libconfuse/src/ -O2 -D_FILE_OFFSET_BITS=64 -D_REENTRANT -D_GNU_SOURCE -pthread 
+CFLAGS=-I./include/ -I/usr/include/fuse -I./libconfuse/src/ -O2 -D_FILE_OFFSET_BITS=64 -D_REENTRANT -D_GNU_SOURCE -pthread
 
 MRBFS_HEADERS=$(shell find include/ -name "*.h" -print)
 
@@ -32,6 +32,7 @@ build_drivers:
 	make -C node-drivers/node-ap
 	make -C node-drivers/node-acsw
 	make -C node-drivers/node-dccm
+	make -C node-drivers/node-iiab
 	make -C node-drivers/node-clockdriver
 
 clean:
@@ -50,5 +51,6 @@ clean:
 	make -C node-drivers/node-ap clean
 	make -C node-drivers/node-acsw clean
 	make -C node-drivers/node-dccm clean
+	make -C node-drivers/node-iiab clean
 	make -C node-drivers/node-clockdriver clean
 	
