@@ -266,8 +266,8 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 		nodeLocalStorage->file_signalAspect[i] = mrbfsNodeCreateFile_RO_STR(mrbfsNode, signalAspectFilename, &nodeLocalStorage->signalAspectValue[i], OUTPUT_VALUE_BUFFER_SZ);
 	}
 
-	nodeLocalStorage->file_soundOut[0] = mrbfsNodeCreateFile_RO_INT(mrbfsNode, "soundOut1");
-	nodeLocalStorage->file_soundOut[1] = mrbfsNodeCreateFile_RO_INT(mrbfsNode, "soundOut2");
+	nodeLocalStorage->file_soundOut[0] = mrbfsNodeCreateFile_RO_INT(mrbfsNode, "soundOut0");
+	nodeLocalStorage->file_soundOut[1] = mrbfsNodeCreateFile_RO_INT(mrbfsNode, "soundOut1");
 
 	nodeLocalStorage->file_state[0] = mrbfsNodeCreateFile_RO_INT(mrbfsNode, "stateMachine0");
 	nodeLocalStorage->file_state[1] = mrbfsNodeCreateFile_RO_INT(mrbfsNode, "stateMachine1");
@@ -651,7 +651,7 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 				
 				for (i=6; i<8; i++)
 				{
-					nodeLocalStorage->file_soundOut[i]->value.valueInt = (rxPkt->pkt[7] & (1<<i))?1:0;	
+					nodeLocalStorage->file_soundOut[i]->value.valueInt = (rxPkt->pkt[11] & (1<<i))?1:0;
 					nodeLocalStorage->file_soundOut[i]->updateTime = currentTime;					
 				}
 
