@@ -651,8 +651,8 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 				
 				for (i=6; i<8; i++)
 				{
-					nodeLocalStorage->file_soundOut[i]->value.valueInt = (rxPkt->pkt[11] & (1<<i))?1:0;
-					nodeLocalStorage->file_soundOut[i]->updateTime = currentTime;					
+					nodeLocalStorage->file_soundOut[i-6]->value.valueInt = (rxPkt->pkt[11] & (1<<i))?1:0;
+					nodeLocalStorage->file_soundOut[i-6]->updateTime = currentTime;					
 				}
 
 				for (i=0; i<4; i++)
