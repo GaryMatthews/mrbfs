@@ -620,6 +620,15 @@ Purpose:  The mrbfsNodeRxPacket() function is called by
 
 *******************************************************/
 
+#define ASPECT_LUNAR     0x07
+#define ASPECT_FL_RED    0x06
+#define ASPECT_FL_GREEN  0x05
+#define ASPECT_RED       0x04
+#define ASPECT_FL_YELLOW 0x03
+#define ASPECT_YELLOW    0x02
+#define ASPECT_GREEN     0x01
+#define ASPECT_OFF       0x00
+
 int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 {
 	NodeLocalStorage* nodeLocalStorage = (NodeLocalStorage*)mrbfsNode->nodeLocalStorage;
@@ -677,14 +686,29 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 					
 					switch(aspectWires)
 					{
-						case 0x04:
-							strcpy(nodeLocalStorage->file_signalAspect[i]->value.valueStr, "Red\n");
+						case ASPECT_OFF:
+							strcpy(nodeLocalStorage->file_signalAspect[i]->value.valueStr, "Off\n");
 							break;
-						case 0x02:
+						case ASPECT_GREEN:
+							strcpy(nodeLocalStorage->file_signalAspect[i]->value.valueStr, "Green\n");
+							break;
+						case ASPECT_YELLOW:
 							strcpy(nodeLocalStorage->file_signalAspect[i]->value.valueStr, "Yellow\n");
 							break;
-						case 0x01:
-							strcpy(nodeLocalStorage->file_signalAspect[i]->value.valueStr, "Green\n");
+						case ASPECT_FL_YELLOW:
+							strcpy(nodeLocalStorage->file_signalAspect[i]->value.valueStr, "Flashing Yellow\n");
+							break;
+						case ASPECT_RED:
+							strcpy(nodeLocalStorage->file_signalAspect[i]->value.valueStr, "Red\n");
+							break;
+						case ASPECT_FL_GREEN:
+							strcpy(nodeLocalStorage->file_signalAspect[i]->value.valueStr, "Flashing Green\n");
+							break;
+						case ASPECT_FL_RED:
+							strcpy(nodeLocalStorage->file_signalAspect[i]->value.valueStr, "Flashing Red\n");
+							break;
+						case ASPECT_LUNAR:
+							strcpy(nodeLocalStorage->file_signalAspect[i]->value.valueStr, "Lunar\n");
 							break;
 						default:
 							sprintf(nodeLocalStorage->file_signalAspect[i]->value.valueStr, "Unknown [0x%02X]\n", aspectWires);
