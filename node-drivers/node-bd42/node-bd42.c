@@ -34,11 +34,9 @@ typedef struct
 	UINT32 pktsReceived;
 	UINT32 value;
 	MRBFSFileNode* file_occ[12];
-	MRBFSFileNode* file_output[4];
 	MRBFSFileNode* file_rxCounter;
 	MRBFSFileNode* file_rxPackets;
 	MRBFSFileNode* file_eepromNodeAddr;
-	MRBFSFileNode* file_mcwritey;
 	char rxPacketStr[RX_PKT_BUFFER_SZ];
 	UINT8 requestRXFeed;
 	MRBusPacketQueue rxq;
@@ -80,46 +78,6 @@ void mrbfsFileNodeWrite(MRBFSFileNode* mrbfsFileNode, const char* data, int data
 			mrbfsFileNode->value.valueInt = nodeLocalStorage->pktsReceived = 0;
 		}
 	}
-	else if (mrbfsFileNode == nodeLocalStorage->file_mcwritey)
-	{
-		MRBusPacket* txPkt = NULL;
-		// Oh, we're going to write something to the bus, fun!
-		if (NULL == mrbfsNode->mrbfsNodeTxPacket)
-			(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_INFO, "Node [%s] can't transmit - no mrbfsNodeTxPacket function defined", mrbfsNode->nodeName);
-		else if (NULL == (txPkt = calloc(1, sizeof(MRBusPacket))))
-			(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_INFO, "Node [%s] can't transmit - failed txPkt allocation", mrbfsNode->nodeName);
-		else
-		{
-			(*mrbfsNode->mrbfsLogMessage)(MRBFS_LOG_INFO, "Node [%s] sending packet (dest=0x%02X)", mrbfsNode->nodeName, mrbfsNode->address);
-			txPkt->bus = mrbfsNode->bus;
-			txPkt->pkt[MRBUS_PKT_SRC] = 0;  // A source of 0xFF will be replaced by the transmit drivers with the interface addresses
-			txPkt->pkt[MRBUS_PKT_DEST] = mrbfsNode->address;
-			txPkt->pkt[MRBUS_PKT_LEN] = 6;
-			txPkt->pkt[MRBUS_PKT_TYPE] = 'A';
-			(*mrbfsNode->mrbfsNodeTxPacket)(txPkt);
-			free(txPkt);
-		}
-	}
-	else
-	{
-		int i;
-		for(i=0; i<4; i++)
-		{
-			if (mrbfsFileNode == nodeLocalStorage->file_output[i])
-			{
-				MRBusPacket txPkt;
-				memset(&txPkt, 0, sizeof(MRBusPacket));
-				txPkt.pkt[MRBUS_PKT_SRC] = 0;  // A source of 0xFF will be replaced by the transmit drivers with the interface addresses
-				txPkt.pkt[MRBUS_PKT_DEST] = mrbfsNode->address;
-				txPkt.pkt[MRBUS_PKT_LEN] = 8;
-				txPkt.pkt[MRBUS_PKT_TYPE] = 'C';
-				txPkt.pkt[MRBUS_PKT_DATA] = i;
-				txPkt.pkt[MRBUS_PKT_DATA+1] = (atoi(data)>0)?1:0;
-				nodeQueueTransmitPacket(mrbfsNode, &txPkt);
-				break;
-			}
-		}
-	}	
 }
 
 // The mrbfsFileNodeRead function is called for files that identify themselves as "readback", meaning
@@ -214,15 +172,11 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 	nodeLocalStorage->pktsReceived = 0;
 	nodeLocalStorage->file_rxCounter = (*mrbfsNode->mrbfsFilesystemAddFile)("rxCounter", FNODE_RW_VALUE_INT, mrbfsNode->path);
 	nodeLocalStorage->file_rxPackets = (*mrbfsNode->mrbfsFilesystemAddFile)("rxPackets", FNODE_RO_VALUE_STR, mrbfsNode->path);
-	nodeLocalStorage->file_mcwritey = (*mrbfsNode->mrbfsFilesystemAddFile)("mcwritey", FNODE_RW_VALUE_INT, mrbfsNode->path);
 	nodeLocalStorage->file_eepromNodeAddr = (*mrbfsNode->mrbfsFilesystemAddFile)("eepromNodeAddr", FNODE_RO_VALUE_READBACK, mrbfsNode->path);
 
 	nodeLocalStorage->file_rxPackets->value.valueStr = nodeLocalStorage->rxPacketStr;
 	nodeLocalStorage->file_rxCounter->mrbfsFileNodeWrite = &mrbfsFileNodeWrite;
 	nodeLocalStorage->file_rxCounter->nodeLocalStorage = (void*)mrbfsNode;
-
-	nodeLocalStorage->file_mcwritey->mrbfsFileNodeWrite = &mrbfsFileNodeWrite;
-	nodeLocalStorage->file_mcwritey->nodeLocalStorage = (void*)mrbfsNode;
 
 	nodeLocalStorage->file_eepromNodeAddr->mrbfsFileNodeWrite = &mrbfsFileNodeWrite;
 	nodeLocalStorage->file_eepromNodeAddr->mrbfsFileNodeRead = &mrbfsFileNodeRead;
@@ -246,20 +200,6 @@ int mrbfsNodeInit(MRBFSBusNode* mrbfsNode)
 		occupancyFilename = mrbfsNodeOptionGet(mrbfsNode, occupancyKeyname, occupancyDefaultFilename);
 		nodeLocalStorage->file_occ[i] = (*mrbfsNode->mrbfsFilesystemAddFile)(occupancyFilename, FNODE_RO_VALUE_INT, mrbfsNode->path);
 	}
-
-	for(i=0; i<4; i++)
-	{
-		char outputDefaultFilename[32];
-		char outputKeyname[32];
-		const char* outputFilename = outputDefaultFilename;
-		sprintf(outputKeyname, "output_%d_name", i+1);
-		sprintf(outputDefaultFilename, "output_%d", i+1);
-		outputFilename = mrbfsNodeOptionGet(mrbfsNode, outputKeyname, outputDefaultFilename);
-		nodeLocalStorage->file_output[i] = (*mrbfsNode->mrbfsFilesystemAddFile)(outputFilename, FNODE_RW_VALUE_INT, mrbfsNode->path);
-		nodeLocalStorage->file_output[i]->mrbfsFileNodeWrite = &mrbfsFileNodeWrite;
-		nodeLocalStorage->file_output[i]->nodeLocalStorage = (void*)mrbfsNode;
-	}
-
 
 	return (0);
 }
@@ -311,14 +251,6 @@ int mrbfsNodeRxPacket(MRBFSBusNode* mrbfsNode, MRBusPacket* rxPkt)
 				nodeLocalStorage->file_occ[i]->value.valueInt = (occupancy & 1<<i)?1:0;
 				nodeLocalStorage->file_occ[i]->updateTime = currentTime;
 			}
-			for (i=0; i<4; i++)
-			{
-				if (NULL == nodeLocalStorage->file_output[i])
-					continue;
-				nodeLocalStorage->file_output[i]->value.valueInt = (occupancy & 1<<i)?1:0;
-				nodeLocalStorage->file_output[i]->updateTime = currentTime;
-			}
-
 		}
 			break;			
 	}
